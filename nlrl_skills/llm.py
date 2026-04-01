@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from openai import OpenAI
+import httpx
 
 from .config import LLMConfig
 from .schemas import LLMMessage
@@ -23,7 +23,15 @@ class LLMCallResult:
 class OpenAICompatibleLLM:
     def __init__(self, config: LLMConfig):
         self.config = config
-        self.client = OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=config.timeout_seconds)
+        self.client = httpx.Client(
+            base_url=config.base_url.rstrip("/") + "/",
+            timeout=config.timeout_seconds,
+            trust_env=False,
+            headers={
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
         self.max_retries = 5
         self.retry_delay_seconds = 6
 
@@ -53,6 +61,7 @@ class OpenAICompatibleLLM:
             "model": self.config.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "temperature": self.config.temperature if temperature is None else temperature,
+            "enable_thinking": False,
         }
         resolved_max_tokens = self.config.max_tokens if max_tokens is None else max_tokens
         if resolved_max_tokens is not None:
@@ -60,7 +69,8 @@ class OpenAICompatibleLLM:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = self.client.chat.completions.create(**payload)
+                response = self.client.post("chat/completions", json=payload)
+                response.raise_for_status()
                 break
             except Exception as exc:  # pragma: no cover - network dependent
                 last_error = exc
@@ -69,11 +79,12 @@ class OpenAICompatibleLLM:
                 time.sleep(self.retry_delay_seconds)
         else:  # pragma: no cover - defensive
             raise RuntimeError(f"LLM call failed: {last_error}")
+        raw_response = response.json()
         text = ""
-        if response.choices:
-            message = response.choices[0].message
-            text = message.content or ""
-        raw_response = json.loads(response.model_dump_json())
+        choices = raw_response.get("choices", [])
+        if choices:
+            message = choices[0].get("message", {})
+            text = message.get("content") or ""
         return LLMCallResult(text=text, raw_response=raw_response, request_payload=payload)
 
     def chat_json(
