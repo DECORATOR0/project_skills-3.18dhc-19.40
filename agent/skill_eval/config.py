@@ -47,7 +47,7 @@ MAX_SHORTLISTED_TOOLS = 45
 # Skill-aware planner configuration.
 # This planning stage keeps the original single-agent shape: shortlist -> one
 # planner LLM call -> full tool sequence.
-SKILL_PLANNER_MODEL_NAME = "Qwen/Qwen3-8B"
+SKILL_PLANNER_MODEL_NAME = "qwen3-8b"
 SKILL_PLANNER_PRIMARY_BASE_URL = "http://35.220.164.252:3888/v1"
 SKILL_PLANNER_BACKUP_BASE_URL = "http://35.220.164.252:3888/v1"
 SKILL_PLANNER_API_KEY = "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ"
@@ -65,7 +65,7 @@ SKILLS_ROOT = PROJECT_ROOT / ".claude" / "skills"
 # Skill parameter model configuration.
 # This model is used only for stepwise tool-argument generation inside the skill flow.
 
-PARAMETER_MODEL_NAME = "Qwen/Qwen3-8B"
+PARAMETER_MODEL_NAME = "qwen3-8b"
 PARAMETER_MODEL_BASE_URL = "http://35.220.164.252:3888/v1"
 PARAMETER_MODEL_BACKUP_URL = "http://35.220.164.252:3888/v1"
 PARAMETER_MODEL_API_KEY = "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ"
@@ -97,7 +97,7 @@ PARAMETER_REQUEST_TIMEOUT = 120
 
 # Final 4-choice answer selector model configuration.
 # This model is used only after skill execution has finished.
-ANSWER_SELECTOR_MODEL_NAME = "Qwen/Qwen3-8B"
+ANSWER_SELECTOR_MODEL_NAME = "qwen3-8b"
 ANSWER_SELECTOR_PRIMARY_BASE_URL = "http://35.220.164.252:3888/v1"
 ANSWER_SELECTOR_BACKUP_BASE_URL = "http://35.220.164.252:3888/v1"
 ANSWER_SELECTOR_API_KEY = "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ"

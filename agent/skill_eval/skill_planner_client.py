@@ -11,6 +11,7 @@ import logging
 import time
 from typing import Optional
 
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 from .network_errors import NetworkCallError, PRIMARY_RETRY_COUNT, RETRY_WAIT_SECONDS, is_retryable_network_error
@@ -31,6 +32,7 @@ def _build_client(base_url: str) -> OpenAI:
         base_url=base_url,
         api_key=SKILL_PLANNER_API_KEY,
         timeout=SKILL_PLANNER_REQUEST_TIMEOUT,
+        http_client=httpx.Client(timeout=SKILL_PLANNER_REQUEST_TIMEOUT, trust_env=False),
     )
 
 
@@ -39,6 +41,7 @@ def _build_async_client(base_url: str) -> AsyncOpenAI:
         base_url=base_url,
         api_key=SKILL_PLANNER_API_KEY,
         timeout=SKILL_PLANNER_REQUEST_TIMEOUT,
+        http_client=httpx.AsyncClient(timeout=SKILL_PLANNER_REQUEST_TIMEOUT, trust_env=False),
     )
 
 
@@ -60,6 +63,7 @@ def chat_completion(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "extra_body": {"enable_thinking": False},
     }
     if response_format:
         kwargs["response_format"] = response_format
@@ -109,6 +113,7 @@ async def async_chat_completion(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "extra_body": {"enable_thinking": False},
     }
     if response_format:
         kwargs["response_format"] = response_format

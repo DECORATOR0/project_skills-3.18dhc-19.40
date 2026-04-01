@@ -52,23 +52,11 @@ class WorkerDecision:
 
 
 def _client(base_url: str) -> OpenAI:
-    trust_env = not (
-        "127.0.0.1" in base_url
-        or "localhost" in base_url
-        or "192.168." in base_url
-        or "10." in base_url
-        or "172.16." in base_url
-        or "172.17." in base_url
-        or "172.18." in base_url
-        or "172.19." in base_url
-        or "172.2" in base_url
-        or "172.3" in base_url
-    )
     return OpenAI(
         base_url=base_url,
         api_key=PARAMETER_MODEL_API_KEY,
         timeout=PARAMETER_REQUEST_TIMEOUT,
-        http_client=httpx.Client(timeout=PARAMETER_REQUEST_TIMEOUT, trust_env=trust_env),
+        http_client=httpx.Client(timeout=PARAMETER_REQUEST_TIMEOUT, trust_env=False),
     )
 
 
@@ -196,7 +184,9 @@ def _build_request_kwargs(
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.0,
-        }
+    }
+    if PARAMETER_MODEL_ENABLE_THINKING is not _MISSING:
+        kwargs["extra_body"] = {"enable_thinking": PARAMETER_MODEL_ENABLE_THINKING}
     if use_tool_calling and planned_tool_name:
         schema = _tool_call_schema(planned_tool_name)
         if schema:
@@ -206,8 +196,6 @@ def _build_request_kwargs(
                 "function": {"name": planned_tool_name},
             }
     if not compatibility_mode:
-        if PARAMETER_MODEL_ENABLE_THINKING is not _MISSING:
-            kwargs["extra_body"] = {"enable_thinking": PARAMETER_MODEL_ENABLE_THINKING}
         if PARAMETER_MODEL_CONTEXT_WINDOW is not _MISSING and PARAMETER_MODEL_CONTEXT_WINDOW != -1:
             kwargs["max_tokens"] = PARAMETER_MODEL_CONTEXT_WINDOW
     return kwargs
