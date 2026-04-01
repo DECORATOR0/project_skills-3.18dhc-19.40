@@ -1,0 +1,51 @@
+{
+  "actor": {
+    "model": "gpt-5.4",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
+    "temperature": 0.3,
+    "timeout_seconds": 180
+  },
+  "critic": {
+    "model": "gpt-5.4",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
+    "temperature": 0.3,
+    "timeout_seconds": 180
+  },
+  "router": {
+    "model": "gpt-5.4",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
+    "temperature": 0.1,
+    "timeout_seconds": 180
+  },
+  "executor": {
+    "model": "Qwen/Qwen3-8B",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
+    "temperature": 0.1,
+    "max_tokens": 32768,
+    "timeout_seconds": 180
+  },
+  "paths": {
+    "workspace_root": "D:/Gwork/2026paper/skills/project",
+    "prompt_root": "D:/Gwork/2026paper/skills/project/prompts",
+    "run_root": "D:/Gwork/2026paper/skills/project/runs",
+    "skill_library_root": "D:/Gwork/2026paper/skills/project/skill_library",
+    "experience_buffer_path": "D:/Gwork/2026paper/skills/project/runtime_state/experience_buffer.jsonl",
+    "dataset_path": "D:/Gwork/2026paper/skills/project/benchmark/question.json",
+    "converted_dataset_path": "D:/Gwork/2026paper/skills/project/data/converted/earth_bench_skill_rl/question.json",
+    "docs_root": "D:/Gwork/2026paper/skills/project/docs"
+  },
+  "runtime": {
+    "max_router_candidates": 64,
+    "skill_match_threshold": 80.0,
+    "max_executor_steps": 10,
+    "max_actor_steps": 8,
+    "max_iterations_per_task": 10,
+    "skill_count_limit": 6,
+    "python_executable": "python",
+    "shell_program": "powershell"
+  }
+}
