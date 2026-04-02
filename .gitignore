@@ -7,6 +7,6 @@ runtime_state/
 benchmark/out/
 
 # skill_eval runtime artifacts
-agent/skill_eval/direct_executor_100_background.log
+agent/skill_eval/direct_executor*.log
 agent/skill_eval/execution_results/
 agent/skill_eval/execution_results*/
