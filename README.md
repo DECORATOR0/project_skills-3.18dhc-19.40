@@ -43,6 +43,8 @@ configs/
   system.json
 
 docs/
+  analysis/
+    origin_dhc_skillpool_liuyouliang_analysis.md
   agent_skill_definition.md
   training_data_format.md
 
@@ -92,6 +94,10 @@ runs/
   env_probe_2/
   env_probe_3/
 ```
+
+## Additional Notes
+
+- Comparative note for `origin`, the current DHC branch, and `skill-pool`: `docs/analysis/origin_dhc_skillpool_liuyouliang_analysis.md`
 
 ## LLM Roles
 
