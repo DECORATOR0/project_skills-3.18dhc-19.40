@@ -16,7 +16,13 @@ from typing import Optional
 import httpx
 from openai import AsyncOpenAI, OpenAI
 
-from .network_errors import NetworkCallError, PRIMARY_RETRY_COUNT, RETRY_WAIT_SECONDS, is_retryable_network_error
+from .llm_gate import async_llm_slot, sync_llm_slot
+from .network_errors import (
+    NetworkCallError,
+    PRIMARY_RETRY_COUNT,
+    compute_retry_wait_seconds,
+    is_retryable_network_error,
+)
 from .config import (
     ANSWER_SELECTOR_API_KEY,
     ANSWER_SELECTOR_BACKUP_BASE_URL,
@@ -80,7 +86,8 @@ def chat_completion(
     last_err = None
     for attempt in range(PRIMARY_RETRY_COUNT):
         try:
-            resp = _primary.chat.completions.create(**kwargs)
+            with sync_llm_slot():
+                resp = _primary.chat.completions.create(**kwargs)
             return resp.choices[0].message.content or ""
         except Exception as exc:
             if not is_retryable_network_error(exc):
@@ -94,9 +101,10 @@ def chat_completion(
                 exc,
             )
             if attempt < PRIMARY_RETRY_COUNT - 1:
-                time.sleep(RETRY_WAIT_SECONDS)
+                time.sleep(compute_retry_wait_seconds(exc, attempt))
     try:
-        resp = _backup.chat.completions.create(**kwargs)
+        with sync_llm_slot():
+            resp = _backup.chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""
     except Exception as exc:
         if not is_retryable_network_error(exc):
@@ -130,7 +138,8 @@ async def async_chat_completion(
     last_err = None
     for attempt in range(PRIMARY_RETRY_COUNT):
         try:
-            resp = await _async_primary.chat.completions.create(**kwargs)
+            async with async_llm_slot():
+                resp = await _async_primary.chat.completions.create(**kwargs)
             return resp.choices[0].message.content or ""
         except Exception as exc:
             if not is_retryable_network_error(exc):
@@ -144,9 +153,10 @@ async def async_chat_completion(
                 exc,
             )
             if attempt < PRIMARY_RETRY_COUNT - 1:
-                await asyncio.sleep(RETRY_WAIT_SECONDS)
+                await asyncio.sleep(compute_retry_wait_seconds(exc, attempt))
     try:
-        resp = await _async_backup.chat.completions.create(**kwargs)
+        async with async_llm_slot():
+            resp = await _async_backup.chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""
     except Exception as exc:
         if not is_retryable_network_error(exc):

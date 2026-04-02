@@ -23,7 +23,13 @@ from .config import (
     PARAMETER_MODEL_NAME,
     PARAMETER_REQUEST_TIMEOUT,
 )
-from .network_errors import NetworkCallError, PRIMARY_RETRY_COUNT, RETRY_WAIT_SECONDS, is_retryable_network_error
+from .llm_gate import sync_llm_slot
+from .network_errors import (
+    NetworkCallError,
+    PRIMARY_RETRY_COUNT,
+    compute_retry_wait_seconds,
+    is_retryable_network_error,
+)
 from .prompt_builder import worker_system_prompt
 from .tool_catalog import ToolMeta, build_catalog
 
@@ -352,22 +358,24 @@ def _request_worker_payload(user_prompt: str, *, model: str, planned_tool_name: 
                 use_tool_calling=True,
             )
             try:
-                resp = _primary.chat.completions.create(**kwargs)
+                with sync_llm_slot():
+                    resp = _primary.chat.completions.create(**kwargs)
             except Exception as exc:
                 if not _is_bad_request(exc):
                     raise
                 log.warning(
                     "Parameter worker got 400 with tool-calling/optional args on primary endpoint; retrying in compatibility mode."
                 )
-                resp = _primary.chat.completions.create(
-                    **_build_request_kwargs(
-                        user_prompt,
-                        model,
-                        compatibility_mode=True,
-                        planned_tool_name=planned_tool_name,
-                        use_tool_calling=True,
+                with sync_llm_slot():
+                    resp = _primary.chat.completions.create(
+                        **_build_request_kwargs(
+                            user_prompt,
+                            model,
+                            compatibility_mode=True,
+                            planned_tool_name=planned_tool_name,
+                            use_tool_calling=True,
+                        )
                     )
-                )
             tool_call_payload = _parse_tool_call_response(resp, planned_tool_name)
             if tool_call_payload is not None:
                 normalized = _normalize_worker_payload(tool_call_payload)
@@ -399,7 +407,7 @@ def _request_worker_payload(user_prompt: str, *, model: str, planned_tool_name: 
                 exc,
             )
             if attempt < PRIMARY_RETRY_COUNT - 1:
-                time.sleep(RETRY_WAIT_SECONDS)
+                time.sleep(compute_retry_wait_seconds(exc, attempt))
     raw_content = ""
     cleaned_content = ""
     try:
@@ -411,22 +419,24 @@ def _request_worker_payload(user_prompt: str, *, model: str, planned_tool_name: 
             use_tool_calling=True,
         )
         try:
-            resp = _backup.chat.completions.create(**kwargs)
+            with sync_llm_slot():
+                resp = _backup.chat.completions.create(**kwargs)
         except Exception as exc:
             if not _is_bad_request(exc):
                 raise
             log.warning(
                 "Parameter worker got 400 with tool-calling/optional args on backup endpoint; retrying in compatibility mode."
             )
-            resp = _backup.chat.completions.create(
-                **_build_request_kwargs(
-                    user_prompt,
-                    model,
-                    compatibility_mode=True,
-                    planned_tool_name=planned_tool_name,
-                    use_tool_calling=True,
+            with sync_llm_slot():
+                resp = _backup.chat.completions.create(
+                    **_build_request_kwargs(
+                        user_prompt,
+                        model,
+                        compatibility_mode=True,
+                        planned_tool_name=planned_tool_name,
+                        use_tool_calling=True,
+                    )
                 )
-            )
         tool_call_payload = _parse_tool_call_response(resp, planned_tool_name)
         if tool_call_payload is not None:
             normalized = _normalize_worker_payload(tool_call_payload)

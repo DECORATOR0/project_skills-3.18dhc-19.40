@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -17,6 +18,7 @@ from .config import TOOL_FILES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_DIR = PROJECT_ROOT / "agent" / "tools"
+_MODULE_LOAD_LOCK = threading.Lock()
 
 
 def _argmax(x: list) -> int:
@@ -52,17 +54,21 @@ def _load_module(module_file: str, temp_dir: Path):
     if str(TOOLS_DIR) not in sys.path:
         sys.path.insert(0, str(TOOLS_DIR))
 
-    old_argv = sys.argv[:]
-    try:
-        sys.argv = [str(module_path), "--temp_dir", str(temp_dir)]
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"Failed to build import spec for {module_file}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        sys.argv = old_argv
+    # Tool modules parse `sys.argv` at import time to discover their temp root.
+    # Imports therefore must be serialized, otherwise concurrent threads can
+    # overwrite each other's `--temp_dir` payload.
+    with _MODULE_LOAD_LOCK:
+        old_argv = sys.argv[:]
+        try:
+            sys.argv = [str(module_path), "--temp_dir", str(temp_dir)]
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            if spec is None or spec.loader is None:
+                raise RuntimeError(f"Failed to build import spec for {module_file}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            sys.argv = old_argv
 
 
 class ToolRuntime:

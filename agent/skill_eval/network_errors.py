@@ -52,5 +52,12 @@ def is_retryable_network_error(exc: Exception) -> bool:
     if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, APIConnectionError, APITimeoutError)):
         return True
     if isinstance(exc, APIStatusError):
-        return exc.status_code in {408, 500, 502, 503, 504}
+        return exc.status_code in {408, 429, 500, 502, 503, 504}
     return False
+
+
+def compute_retry_wait_seconds(exc: Exception, attempt_index: int) -> int:
+    wait = RETRY_WAIT_SECONDS * max(1, attempt_index + 1)
+    if isinstance(exc, APIStatusError) and exc.status_code == 429:
+        return wait * 2
+    return wait

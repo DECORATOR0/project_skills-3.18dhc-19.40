@@ -674,3 +674,19 @@ def save_batch_summary(records: list[SkillExecutionRecord], output_dir: Path) ->
     path = output_dir / "batch_summary.json"
     path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def execute_one_question_with_mode(
+    question_id: str,
+    output_dir: Path,
+    *,
+    pipeline_mode: str = "staged",
+) -> SkillExecutionRecord:
+    mode = (pipeline_mode or "staged").strip().lower()
+    if mode == "staged":
+        return execute_one_question(question_id, output_dir)
+    if mode == "direct-executor":
+        from .direct_executor import execute_one_question as execute_one_question_direct_executor
+
+        return execute_one_question_direct_executor(question_id, output_dir)
+    raise ValueError(f"Unsupported pipeline_mode: {pipeline_mode}")

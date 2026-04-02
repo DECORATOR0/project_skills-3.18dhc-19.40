@@ -308,6 +308,12 @@ conda activate earth-bench-skill-eval
 python -m agent.skill_eval.run_skill_executor --all --concurrency 24 --output agent/skill_eval/execution_results -v
 ```
 
+If you want the routed 6-skill family to be consumed by one direct tool-using executor instead of the staged `planner -> parameter_worker -> answer_selector` chain:
+
+```powershell
+python -m agent.skill_eval.run_skill_executor --all --pipeline-mode direct-executor --concurrency 24 --output agent/skill_eval/execution_results -v
+```
+
 Single-question example:
 
 ```powershell
@@ -321,6 +327,13 @@ The one-shot executor:
 - executes tools
 - selects the final answer
 - computes the full metric set in one run
+
+`run_skill_executor` now supports two pipeline modes:
+
+- `staged`
+  - the original `planner -> parameter_worker -> executor -> answer_selector` path
+- `direct-executor`
+  - keeps the same code-routed 6-skill family and shortlist, but lets one executor model consume the routed skill directly and choose tools step by step
 
 Outputs:
 
@@ -517,6 +530,7 @@ All questions, one-shot:
 
 ```powershell
 python -m agent.skill_eval.run_skill_executor --all --concurrency 24 --output agent/skill_eval/execution_results -v
+python -m agent.skill_eval.run_skill_executor --all --pipeline-mode direct-executor --concurrency 24 --output agent/skill_eval/execution_results -v
 ```
 
 Manifest-only debug run:

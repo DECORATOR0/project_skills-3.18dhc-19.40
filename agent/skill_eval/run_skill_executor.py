@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .benchmark_loader import load_benchmark
-from .executor import execute_one_question, save_batch_summary
+from .executor import execute_one_question_with_mode, save_batch_summary
 from .network_errors import NetworkCallError
 from .schemas import SkillExecutionRecord
 
@@ -46,17 +46,30 @@ def _select_qids(args) -> list[str] | None:
     return None
 
 
-async def _run_one(qid: str, sem: asyncio.Semaphore, output_dir: Path, idx: int, total: int):
+async def _run_one(
+    qid: str,
+    sem: asyncio.Semaphore,
+    output_dir: Path,
+    idx: int,
+    total: int,
+    pipeline_mode: str,
+):
     async with sem:
-        log.info("[%d/%d] Starting Q%s", idx, total, qid)
+        log.info("[%d/%d] Starting Q%s | mode=%s", idx, total, qid, pipeline_mode)
         try:
-            record = await asyncio.to_thread(execute_one_question, qid, output_dir)
+            record = await asyncio.to_thread(
+                execute_one_question_with_mode,
+                qid,
+                output_dir,
+                pipeline_mode=pipeline_mode,
+            )
             metrics = record.metrics or {}
             log.info(
-                "[%d/%d] Finished Q%s | skill=%s | plan=%s | answer=%s | TAO=%.4f | TIO=%.4f | TEM=%.4f | ACC=%.4f",
+                "[%d/%d] Finished Q%s | mode=%s | skill=%s | plan=%s | answer=%s | TAO=%.4f | TIO=%.4f | TEM=%.4f | ACC=%.4f",
                 idx,
                 total,
                 qid,
+                pipeline_mode,
                 record.skill_id,
                 record.planning_source,
                 record.final_choice_label or "?",
@@ -105,11 +118,11 @@ async def _run_one(qid: str, sem: asyncio.Semaphore, output_dir: Path, idx: int,
             return record
 
 
-async def _run_many(qids: list[str], concurrency: int, output_dir: Path):
+async def _run_many(qids: list[str], concurrency: int, output_dir: Path, pipeline_mode: str):
     sem = asyncio.Semaphore(concurrency)
     total = len(qids)
     tasks = [
-        asyncio.create_task(_run_one(qid, sem, output_dir, i + 1, total))
+        asyncio.create_task(_run_one(qid, sem, output_dir, i + 1, total, pipeline_mode))
         for i, qid in enumerate(qids)
     ]
     return await asyncio.gather(*tasks)
@@ -123,6 +136,13 @@ def main() -> None:
     group.add_argument("--all", action="store_true")
     parser.add_argument("--end", type=int)
     parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument(
+        "--pipeline-mode",
+        type=str,
+        choices=["staged", "direct-executor"],
+        default="staged",
+        help="Choose the original staged pipeline or the new direct single-executor skill consumer.",
+    )
     parser.add_argument("--output", type=str, default="agent/skill_eval/execution_results")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -134,9 +154,14 @@ def main() -> None:
     if qids is None:
         qids = [item.question_id for item in load_benchmark()]
 
-    log.info("Prepared %d questions with concurrency=%d", len(qids), max(1, args.concurrency))
+    log.info(
+        "Prepared %d questions with concurrency=%d pipeline_mode=%s",
+        len(qids),
+        max(1, args.concurrency),
+        args.pipeline_mode,
+    )
     log.info("Output directory: %s", output_dir)
-    records = asyncio.run(_run_many(qids, max(1, args.concurrency), output_dir))
+    records = asyncio.run(_run_many(qids, max(1, args.concurrency), output_dir, args.pipeline_mode))
     summary_path = save_batch_summary(records, output_dir)
     records_path = output_dir / "records.json"
     records_path.write_text(
