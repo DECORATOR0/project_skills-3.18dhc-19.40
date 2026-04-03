@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
+import os
+import re
 import shutil
 from pathlib import Path
 
 from agent.skill_eval.skill_router import SKILL_SPECS
 
-from .config import SystemConfig
-from .schemas import SkillDetail
+import yaml
+
+from .config import LLMConfig, SystemConfig
+from .llm import OpenAICompatibleLLM, log_llm_call
+from .prompting import render_prompt
+from .schemas import LLMMessage, SkillDetail
 from .skills import discover_skills, load_skill_detail, write_skill_bundle
 from .utils import ensure_dir, read_json, read_text, slugify, write_json
 
@@ -17,6 +24,62 @@ FAMILY_TO_DOMAIN = {
     "earth-product-derived-index-change": "products",
     "earth-product-raster-arithmetic": "products",
     "earth-rgb-perception-change": "rgb",
+}
+
+GENERIC_RESOURCE_TOOLS = {"get_filelist", "read_file", "run_python_script"}
+PERCEPTION_TOOLS = {"MSCN", "InstructSAM", "RemoteSAM", "SM3Det", "SAM2", "ChangeOS"}
+DERIVATION_TOOLS = {
+    "split_window",
+    "lst_single_channel",
+    "lst_multi_channel",
+    "temperature_emissivity_separation",
+    "modis_day_night_lst",
+    "ttm_lst",
+    "band_ratio",
+    "compute_tvdi",
+    "ATI",
+    "calculate_ndvi",
+    "calculate_ndwi",
+    "calculate_ndti",
+    "calculate_nbr",
+    "calculate_water_turbidity_ntu",
+    "apply_cloud_mask",
+}
+THRESHOLD_TOOLS = {
+    "calculate_threshold_ratio",
+    "calc_threshold_value_mean",
+    "calc_batch_image_mean_threshold",
+    "count_images_exceeding_threshold_ratio",
+    "count_images_exceeding_mean_multiplier",
+    "count_pixels_satisfying_conditions",
+    "average_ratio_exceeding_threshold",
+    "calculate_band_mean_by_condition",
+}
+SUMMARY_TOOLS = {
+    "mean",
+    "calc_batch_image_mean",
+    "calc_batch_image_mean_mean",
+    "calc_batch_image_max",
+    "calc_batch_image_sum",
+    "calc_batch_image_mean_max_min",
+    "calculate_tif_average",
+    "get_percentile_value_from_image",
+    "max_value_and_index",
+    "min_value_and_index",
+    "calculate_area",
+    "calculate_bbox_area",
+    "count_skeleton_contours",
+}
+COMPARISON_TOOLS = {
+    "difference",
+    "percentage_change",
+    "compute_linear_trend",
+    "mann_kendall_test",
+    "sens_slope",
+    "analyze_hotspot_direction",
+    "division",
+    "multiply",
+    "subtract",
 }
 
 
@@ -81,6 +144,299 @@ def _yaml_list(lines: list[str]) -> str:
     return "\n".join(f"  - {line}" for line in lines)
 
 
+def _non_resource_tools(detail: SkillDetail) -> list[str]:
+    return [tool for tool in detail.header.allowed_tools if tool not in GENERIC_RESOURCE_TOOLS]
+
+
+def _contains_any(text: str, patterns: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(pattern in lowered for pattern in patterns)
+
+
+def _body_hint_flags(detail: SkillDetail) -> set[str]:
+    text = detail.body.lower()
+    flags: set[str] = set()
+    if "get_filelist" in text:
+        flags.add("file_discovery_first")
+    if _contains_any(
+        text,
+        (
+            "returned path",
+            "exact returned",
+            "actual tes return value",
+            "reuse that exact",
+            "pass that exact",
+            "returned output raster path",
+        ),
+    ):
+        flags.add("reuse_returned_path")
+    if _contains_any(text, ("band order", "ascending band order", "preserve band order", "in band order")):
+        flags.add("preserve_band_order")
+    if _contains_any(text, ("missing", "if any are missing", "if any region is missing", "required inputs")):
+        flags.add("validate_inputs")
+    if _contains_any(text, ("multiple choice", "nearest matching choice", "answer letter", "closest listed option")):
+        flags.add("late_choice_mapping")
+    return flags
+
+
+def _flow_label(tools: list[str]) -> str:
+    tool_set = set(tools)
+    if tool_set & PERCEPTION_TOOLS:
+        if tool_set & (SUMMARY_TOOLS | COMPARISON_TOOLS):
+            return "perception -> geometry/area/change summary"
+        return "perception -> final answer"
+    if tool_set & DERIVATION_TOOLS:
+        if tool_set & COMPARISON_TOOLS:
+            return "derive per block -> compare/trend"
+        if tool_set & THRESHOLD_TOOLS:
+            return "derive -> threshold/condition statistic"
+        if tool_set & SUMMARY_TOOLS:
+            return "derive -> summary statistic"
+        return "derive artifact -> consume returned output"
+    if tool_set & COMPARISON_TOOLS:
+        return "per-block summary -> compare/trend"
+    if tool_set & SUMMARY_TOOLS:
+        return "collect evidence -> final summary"
+    return "inspect inputs -> narrow tool chain -> finalize"
+
+
+def _pattern_title(row: dict, detail: SkillDetail) -> str:
+    bucket = str(row.get("training_bucket", "")).strip() or "general"
+    tools = _non_resource_tools(detail)
+    if tools:
+        return f"{bucket} | {' -> '.join(tools[:3])}"
+    return f"{bucket} | {_flow_label(tools)}"
+
+
+def _pattern_summary(row: dict, detail: SkillDetail) -> str:
+    bucket = str(row.get("training_bucket", "")).strip() or "this family"
+    tools = _non_resource_tools(detail)
+    tool_set = set(tools)
+    flags = _body_hint_flags(detail)
+    sentences = [
+        f"For `{bucket}` prompts, start from actual file grouping and keep the tool chain aligned to the family-specific transform before the final statistic.",
+    ]
+    if tool_set & DERIVATION_TOOLS:
+        derive_tool = next(tool for tool in tools if tool in DERIVATION_TOOLS)
+        sentences.append(
+            f"Use `{derive_tool}` or the matching family derivation step to create the intermediate artifact first, then feed that returned artifact into downstream tools."
+        )
+    if tool_set & THRESHOLD_TOOLS:
+        threshold_tool = next(tool for tool in tools if tool in THRESHOLD_TOOLS)
+        sentences.append(
+            f"Keep `{threshold_tool}` or the equivalent threshold/count operation near the end, after the target raster or grouped value has been prepared."
+        )
+    elif tool_set & COMPARISON_TOOLS:
+        sentences.append(
+            "For comparison or trend questions, finish each date, year, or region block first, then run the final compare/trend step."
+        )
+    elif tool_set & SUMMARY_TOOLS:
+        summary_tool = next(tool for tool in tools if tool in SUMMARY_TOOLS)
+        sentences.append(
+            f"Once grouping is fixed, end with `{summary_tool}` or the matching summary tool rather than stopping at an intermediate raster."
+        )
+    if "reuse_returned_path" in flags:
+        sentences.append("Treat tool-returned paths and values as authoritative, and pass them forward verbatim instead of reconstructing them manually.")
+    if "preserve_band_order" in flags:
+        sentences.append("When the family depends on ordered bands or scene pairs, preserve canonical order all the way through the derivation step.")
+    if "validate_inputs" in flags:
+        sentences.append("Validate required bands, scenes, or groups before the expensive derivation step; do not silently guess missing critical inputs.")
+    if "late_choice_mapping" in flags:
+        sentences.append("If the task is multiple choice, compute the substantive result first and map to the final option only at the end.")
+    return " ".join(sentences)
+
+
+def _build_pattern_rows(source_details: list[tuple[dict, SkillDetail]]) -> list[dict]:
+    seen: set[tuple[str, str]] = set()
+    rows: list[dict] = []
+    for row, detail in source_details:
+        title = _pattern_title(row, detail)
+        summary = _pattern_summary(row, detail)
+        key = (title, summary)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"title": title, "summary": summary})
+    return rows
+
+
+def _build_core_guidance(source_details: list[tuple[dict, SkillDetail]]) -> list[str]:
+    if not source_details:
+        return []
+    union_tools = {tool for _, detail in source_details for tool in _non_resource_tools(detail)}
+    union_flags = {flag for _, detail in source_details for flag in _body_hint_flags(detail)}
+    guidance = [
+        "Start from actual file discovery and grouping. Use discovered filenames, dates, regions, and scene pairs as the execution anchor instead of copying assumptions from the prompt.",
+    ]
+    if union_tools & DERIVATION_TOOLS:
+        guidance.append(
+            "If the family requires a derived raster or physical retrieval, generate that intermediate artifact first and propagate the exact returned path or value into downstream tools."
+        )
+    if union_tools & THRESHOLD_TOOLS:
+        guidance.append(
+            "For threshold, condition, or exceedance tasks, keep the threshold/count tool near the terminal step, after the target raster or grouped statistic is fully prepared."
+        )
+    if union_tools & COMPARISON_TOOLS:
+        guidance.append(
+            "For multi-date, multi-year, multi-region, or before/after questions, keep one explicit block per unit and only do the final comparison or trend step after those blocks are complete."
+        )
+    if union_tools & PERCEPTION_TOOLS:
+        guidance.append(
+            "For RGB families, finish perception or segmentation first, then convert detections into counts, distances, areas, or change summaries."
+        )
+    if "preserve_band_order" in union_flags:
+        guidance.append("When the workflow depends on ordered bands or paired scenes, preserve canonical ordering throughout the derivation stage.")
+    if "validate_inputs" in union_flags:
+        guidance.append("Validate required bands, scenes, or region groups before the expensive derivation step; do not silently fabricate missing critical inputs.")
+    if "late_choice_mapping" in union_flags:
+        guidance.append("If the task is multiple choice, compute the substantive result first and only map to the answer option at the end.")
+    deduped: list[str] = []
+    for item in guidance:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def _build_execution_guidance_md(
+    *,
+    family_id: str,
+    display_name: str,
+    core_guidance: list[str],
+    pattern_rows: list[dict],
+) -> str:
+    lines = [
+        f"# {display_name} Execution Guidance",
+        "",
+        "This file is consumer-facing guidance distilled from retained task-local skills.",
+        "It intentionally keeps only high-level tool-flow and execution-flow rules, without benchmark question IDs, raw prompt examples, or source skill names.",
+        "",
+        f"- family_id: `{family_id}`",
+        "",
+        "## Core Guidance",
+    ]
+    if core_guidance:
+        lines.extend(f"- {item}" for item in core_guidance)
+    else:
+        lines.append("- No retained task-local guidance was available for this family in the current run.")
+    lines.extend(["", "## Abstract Patterns"])
+    if pattern_rows:
+        for row in pattern_rows:
+            lines.extend(
+                [
+                    f"### {row['title']}",
+                    "",
+                    row["summary"],
+                    "",
+                ]
+            )
+    else:
+        lines.extend(
+            [
+                "No retained task-local pattern was available for this family in the current run.",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip() + "\n"
+
+
+def _split_frontmatter(text: str) -> tuple[dict, str]:
+    normalized = text.replace("\r\n", "\n")
+    if not normalized.startswith("---\n"):
+        raise ValueError("Generated SKILL.md must start with YAML frontmatter.")
+    end = normalized.find("\n---\n", 4)
+    if end == -1:
+        raise ValueError("Generated SKILL.md frontmatter is not closed.")
+    meta = yaml.safe_load(normalized[4:end]) or {}
+    if not isinstance(meta, dict):
+        raise ValueError("Generated SKILL.md frontmatter must be a mapping.")
+    body = normalized[end + 5 :].lstrip("\n")
+    return meta, body
+
+
+def _render_skill_markdown(meta: dict, body: str) -> str:
+    frontmatter = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).strip()
+    return f"---\n{frontmatter}\n---\n\n{body.lstrip()}"
+
+
+def _normalize_skill_markdown(
+    generated_skill_md: str,
+    *,
+    family_id: str,
+    description: str,
+    allowed_tools: list[str],
+    metadata: dict,
+) -> str:
+    try:
+        parsed_meta, body = _split_frontmatter(generated_skill_md)
+    except Exception:
+        parsed_meta = {}
+        body = generated_skill_md.strip()
+    normalized_meta = {
+        "name": family_id,
+        "description": str(parsed_meta.get("description", description)).strip() or description,
+        "allowed-tools": allowed_tools,
+        "compatibility": "nlrl_skills.executor.task-local-aggregated-v1",
+        "metadata": metadata,
+    }
+    return _render_skill_markdown(normalized_meta, body).strip() + "\n"
+
+
+def _leakage_markers(
+    *,
+    family_rows: list[dict],
+    source_skill_names: list[str],
+) -> list[str]:
+    markers = [
+        "source_question_ids",
+        "source_skill_names",
+        "example_questions",
+        "original_question_id",
+        "source_prompt",
+        "source_skill_dir",
+    ]
+    markers.extend([f"Q{row['original_question_id']}" for row in family_rows if str(row.get("original_question_id", "")).strip()])
+    markers.extend(
+        f"question {row['original_question_id']}"
+        for row in family_rows
+        if str(row.get("original_question_id", "")).strip()
+    )
+    markers.extend(
+        f"question_id: {row['original_question_id']}"
+        for row in family_rows
+        if str(row.get("original_question_id", "")).strip()
+    )
+    markers.extend(source_skill_names)
+    return [marker for marker in markers if marker]
+
+
+def _assert_no_consumer_leakage(text: str, *, markers: list[str]) -> None:
+    lowered = text.lower()
+    for marker in markers:
+        marker_lower = marker.lower()
+        if not marker_lower:
+            continue
+        if marker_lower.isdigit():
+            if re.search(rf"\b{re.escape(marker_lower)}\b", lowered):
+                raise ValueError(f"Consumer-facing aggregation output leaked benchmark identifier: {marker}")
+            continue
+        if marker_lower in lowered:
+            raise ValueError(f"Consumer-facing aggregation output leaked forbidden marker: {marker}")
+
+
+def _aggregator_llm_config(config: SystemConfig) -> LLMConfig:
+    actor = config.actor
+    max_tokens_raw = os.environ.get("NLRL_AGGREGATOR_MAX_TOKENS", "").strip()
+    return LLMConfig(
+        name="aggregator",
+        model=os.environ.get("NLRL_AGGREGATOR_MODEL", "").strip() or actor.model,
+        base_url=os.environ.get("NLRL_AGGREGATOR_BASE_URL", "").strip() or actor.base_url,
+        api_key=os.environ.get("NLRL_AGGREGATOR_API_KEY", "").strip() or actor.api_key,
+        temperature=float(os.environ.get("NLRL_AGGREGATOR_TEMPERATURE", "").strip() or actor.temperature),
+        max_tokens=int(max_tokens_raw) if max_tokens_raw else (actor.max_tokens or 8192),
+        timeout_seconds=int(os.environ.get("NLRL_AGGREGATOR_TIMEOUT_SECONDS", "").strip() or actor.timeout_seconds),
+    )
+
+
 def _format_skill_md(
     *,
     family_id: str,
@@ -88,7 +444,7 @@ def _format_skill_md(
     description: str,
     allowed_tools: list[str],
     metadata: dict,
-    source_rows: list[dict],
+    core_guidance: list[str],
 ) -> str:
     frontmatter_lines = [
         "---",
@@ -120,23 +476,17 @@ def _format_skill_md(
         "- Start from the task payload and file naming evidence. If filenames already expose a derived product, prefer consuming the existing product over recomputing it.",
         "- Use the narrowest reliable tool chain that still preserves benchmark-faithful repeated blocks when the question compares multiple periods, dates, or regions.",
         "- When arithmetic, ranking, or comparison is required, keep the explicit comparison tail instead of stopping at an intermediate statistic.",
-        "- If bundled references are needed, inspect `references/RUNTIME_GUIDANCE.md` and `references/SOURCE_TASKS.md` with `read_file` before guessing.",
+        "- If bundled references are needed, inspect `references/RUNTIME_GUIDANCE.md` and `references/EXECUTION_GUIDANCE.md` with `read_file` before guessing.",
         "- If a later answer depends on computed rasters or scalars, use the exact returned paths or values from previous tool outputs rather than reconstructing them manually.",
         "",
         "## Trigger Signals",
         "- Route to this skill when the question wording, filenames, and target outputs align with the metadata route signals and subfamilies in the frontmatter.",
         "- Prefer this skill when its focus tools and source-task patterns match the requested transform, aggregation, perception, or comparison structure better than the other five families.",
         "",
-        "## Learned Workflow Patterns",
+        "## Guided Execution Flow",
     ]
-    if source_rows:
-        for row in source_rows:
-            lines.extend(
-                [
-                    f"- Q{row['original_question_id']} | bucket={row['training_bucket']} | source={row['skill_name']}",
-                    f"  {row['summary']}",
-                ]
-            )
+    if core_guidance:
+        lines.extend(f"- {item}" for item in core_guidance)
     else:
         lines.append("- No retained task-local source skill was available for this family, so this skill is bootstrapped from the runtime reverse-mapping guidance only.")
 
@@ -145,7 +495,7 @@ def _format_skill_md(
             "",
             "## Reference Usage",
             "- `references/RUNTIME_GUIDANCE.md` captures the runtime 19.40 reverse-mapped family contract and should be read when a task sits near a routing boundary.",
-            "- `references/SOURCE_TASKS.md` records the retained training tasks, their buckets, and short source-skill summaries so the executor can inspect concrete exemplars when needed.",
+            "- `references/EXECUTION_GUIDANCE.md` records abstracted high-level tool-flow and execution-flow guidance distilled from retained source skills without exposing benchmark question IDs or raw examples.",
         ]
     )
     return "\n".join(frontmatter_lines + lines).strip() + "\n"
@@ -154,6 +504,94 @@ def _format_skill_md(
 class AggregatedSkillLibraryBuilder:
     def __init__(self, config: SystemConfig):
         self.config = config
+        self.llm = OpenAICompatibleLLM(_aggregator_llm_config(config))
+
+    def _aggregate_family_with_llm(
+        self,
+        *,
+        family_id: str,
+        spec,
+        runtime_doc: str,
+        allowed_tools: list[str],
+        metadata: dict,
+        family_rows: list[dict],
+        source_details: list[tuple[dict, SkillDetail]],
+        core_guidance: list[str],
+        pattern_rows: list[dict],
+        log_dir: Path,
+    ) -> tuple[str, str, dict]:
+        source_skill_names = [detail.header.name for _, detail in source_details]
+        system_prompt = render_prompt(self.config.prompt_root / "aggregator_system.md")
+        user_prompt = render_prompt(
+            self.config.prompt_root / "aggregator_merge_family.md",
+            family_json=json.dumps(
+                {
+                    "family_id": family_id,
+                    "display_name": spec.display_name,
+                    "description": spec.description,
+                    "domain": FAMILY_TO_DOMAIN[family_id],
+                    "benchmark_question_range_prior": list(spec.question_range),
+                    "route_signals": sorted(set(spec.trigger_keywords)),
+                    "training_buckets": sorted({row["training_bucket"] for row in family_rows}),
+                    "allowed_tools_candidate": allowed_tools,
+                    "consumer_metadata_contract": metadata,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            runtime_guidance_md=runtime_doc,
+            distilled_guidance_json=json.dumps(
+                {
+                    "core_guidance_hints": core_guidance,
+                    "abstract_pattern_hints": pattern_rows,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            source_skills_json=json.dumps(
+                [
+                    {
+                        "training_bucket": str(row["training_bucket"]),
+                        "header": {
+                            "name": detail.header.name,
+                            "description": detail.header.description,
+                            "allowed_tools": detail.header.allowed_tools,
+                        },
+                        "body": detail.body,
+                        "resources": detail.resources,
+                    }
+                    for row, detail in source_details
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+        payload, llm_result = self.llm.chat_json(
+            [
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(role="user", content=user_prompt),
+            ]
+        )
+        log_llm_call(log_dir, "aggregator_merge_family", llm_result)
+        description = str(payload.get("description", spec.description)).strip() or spec.description
+        skill_md_raw = str(payload.get("skill_md", "")).strip()
+        guidance_md = str(payload.get("execution_guidance_md", "")).strip()
+        if not skill_md_raw:
+            raise ValueError(f"Aggregator LLM returned empty skill_md for {family_id}")
+        if not guidance_md:
+            raise ValueError(f"Aggregator LLM returned empty execution_guidance_md for {family_id}")
+        skill_md = _normalize_skill_markdown(
+            skill_md_raw,
+            family_id=family_id,
+            description=description,
+            allowed_tools=allowed_tools,
+            metadata=metadata,
+        )
+        guidance_md = guidance_md.strip() + "\n"
+        markers = _leakage_markers(family_rows=family_rows, source_skill_names=source_skill_names)
+        _assert_no_consumer_leakage(skill_md, markers=markers)
+        _assert_no_consumer_leakage(guidance_md, markers=markers)
+        return skill_md, guidance_md, payload
 
     def build_from_run(
         self,
@@ -177,6 +615,8 @@ class AggregatedSkillLibraryBuilder:
             for child in output_root.iterdir():
                 if child.is_dir():
                     shutil.rmtree(child)
+                else:
+                    child.unlink()
         ensure_dir(output_root)
 
         by_family: dict[str, list[dict]] = {family_id: [] for family_id in SKILL_SPECS}
@@ -223,59 +663,44 @@ class AggregatedSkillLibraryBuilder:
                 "benchmark_question_range_prior": f"{spec.question_range[0]}-{spec.question_range[1]}",
                 "route_signals": sorted(set(spec.trigger_keywords)),
                 "training_buckets": sorted({row["training_bucket"] for row in family_rows}),
-                "source_question_ids": [str(row["original_question_id"]) for row in family_rows],
-                "source_skill_names": source_skill_names,
-                "example_questions": [str(row["prompt"])[:180] for row in family_rows[:4]],
             }
-            source_rows = [
-                {
-                    "original_question_id": str(row["original_question_id"]),
-                    "training_bucket": str(row["training_bucket"]),
-                    "skill_name": detail.header.name,
-                    "summary": _body_excerpt(detail),
-                }
-                for row, detail in source_details
-            ]
-            skill_md = _format_skill_md(
+            pattern_rows = _build_pattern_rows(source_details)
+            core_guidance = _build_core_guidance(source_details)
+            skill_md, execution_guidance_md, llm_payload = self._aggregate_family_with_llm(
                 family_id=family_id,
-                display_name=spec.display_name,
-                description=spec.description,
+                spec=spec,
+                runtime_doc=runtime_doc,
                 allowed_tools=allowed_tools,
                 metadata=metadata,
-                source_rows=source_rows,
+                family_rows=family_rows,
+                source_details=source_details,
+                core_guidance=core_guidance,
+                pattern_rows=pattern_rows,
+                log_dir=output_root / "_aggregation_logs" / slugify(family_id),
             )
 
-            source_task_lines = [
-                f"# {spec.display_name} Source Tasks",
-                "",
-                f"- family_id: `{family_id}`",
-                f"- retained_task_count: `{len(family_rows)}`",
-                "",
-            ]
-            if family_rows:
-                for row, detail in source_details:
-                    source_task_lines.extend(
-                        [
-                            f"## Q{row['original_question_id']} | {row['training_bucket']} | {detail.header.name}",
-                            "",
-                            f"- source_skill_dir: `{row['final_skill_dir']}`",
-                            f"- source_prompt: {row['prompt']}",
-                            "",
-                            "### Summary",
-                            "",
-                            _body_excerpt(detail, limit=900),
-                            "",
-                        ]
-                    )
-            else:
-                source_task_lines.extend(
-                    [
-                        "No retained task-local skill was available for this family in the current run.",
-                        "",
-                        "This aggregated skill is therefore bootstrapped entirely from the runtime reverse-mapping guide.",
-                        "",
-                    ]
-                )
+            aggregation_info = {
+                "family_id": family_id,
+                "display_name": spec.display_name,
+                "domain": FAMILY_TO_DOMAIN[family_id],
+                "source_mode": source_mode,
+                "retained_source_count": len(family_rows),
+                "training_buckets": sorted({row["training_bucket"] for row in family_rows}),
+                "source_question_ids": [str(row["original_question_id"]) for row in family_rows],
+                "source_skill_names": source_skill_names,
+                "sources": [
+                    {
+                        "original_question_id": str(row["original_question_id"]),
+                        "training_bucket": str(row["training_bucket"]),
+                        "skill_name": detail.header.name,
+                        "skill_dir": str(row["final_skill_dir"]),
+                    }
+                    for row, detail in source_details
+                ],
+                "llm_summary": str(llm_payload.get("summary", "")),
+            }
+            aggregation_info_path = output_root / "_aggregation_info" / f"{slugify(family_id)}.json"
+            write_json(aggregation_info_path, aggregation_info)
 
             write_skill_bundle(
                 output_root,
@@ -283,7 +708,7 @@ class AggregatedSkillLibraryBuilder:
                 {
                     "SKILL.md": skill_md,
                     "references/RUNTIME_GUIDANCE.md": runtime_doc,
-                    "references/SOURCE_TASKS.md": "\n".join(source_task_lines).strip() + "\n",
+                    "references/EXECUTION_GUIDANCE.md": execution_guidance_md,
                 },
             )
 
@@ -294,6 +719,8 @@ class AggregatedSkillLibraryBuilder:
                     "domain": FAMILY_TO_DOMAIN[family_id],
                     "retained_source_count": len(family_rows),
                     "source_question_ids": [str(row["original_question_id"]) for row in family_rows],
+                    "source_skill_names": source_skill_names,
+                    "aggregation_info_path": str(aggregation_info_path.resolve()),
                     "output_skill_dir": str((output_root / slugify(family_id)).resolve()),
                 }
             )

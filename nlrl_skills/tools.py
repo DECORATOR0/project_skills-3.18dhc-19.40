@@ -401,12 +401,23 @@ class Toolbox:
         self._register(
             ToolSpec(
                 name="run_python_script",
-                description="Run a Python script under the workspace with optional string arguments.",
+                description="Run a Python script under the workspace with optional string arguments and optional stdin payloads.",
                 parameters={
                     "type": "object",
                     "properties": {
-                        "script_path": {"type": "string"},
-                        "args": {"type": "array"},
+                        "script_path": {"type": "string", "description": "Workspace-relative script path such as scripts/helper.py."},
+                        "args": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional positional arguments passed to the script.",
+                        },
+                        "stdin_json": {
+                            "description": "Optional JSON-serializable payload written to stdin. Use this when the helper script reads json.load(sys.stdin)."
+                        },
+                        "stdin_text": {
+                            "type": "string",
+                            "description": "Optional raw text written to stdin.",
+                        },
                     },
                     "required": ["script_path"],
                 },
@@ -482,12 +493,51 @@ class Toolbox:
             "stderr": _truncate(completed.stderr),
         }
 
-    def run_python_script(self, script_path: str, args: list[str] | None = None) -> dict[str, Any]:
+    def run_python_script(
+        self,
+        script_path: str,
+        args: list[str] | None = None,
+        stdin_json: Any | None = None,
+        stdin_text: str | None = None,
+    ) -> dict[str, Any]:
         target = self._resolve_workspace_path(script_path)
-        cmd = [self.context.python_executable, str(target), *(args or [])]
+        if stdin_json is not None and stdin_text is not None:
+            raise ValueError("Provide at most one of stdin_json or stdin_text.")
+
+        normalized_args = [str(arg) for arg in (args or [])]
+        stdin_payload = ""
+        script_source = read_text(target)
+        expects_json_stdin = "json.load(sys.stdin)" in script_source or "json.loads(sys.stdin.read(" in script_source
+
+        if stdin_json is not None:
+            stdin_payload = json.dumps(stdin_json, ensure_ascii=False)
+        elif stdin_text is not None:
+            stdin_payload = stdin_text
+        elif expects_json_stdin and len(normalized_args) == 1:
+            candidate = normalized_args[0].strip()
+            if candidate[:1] in {"{", "["}:
+                try:
+                    json.loads(candidate)
+                    stdin_payload = normalized_args[0]
+                    normalized_args = []
+                except Exception:
+                    pass
+
+        if expects_json_stdin and not stdin_payload:
+            return {
+                "returncode": 2,
+                "stdout": "",
+                "stderr": (
+                    "Script expects JSON on stdin. Call run_python_script with stdin_json "
+                    "or stdin_text instead of only positional args."
+                ),
+            }
+
+        cmd = [self.context.python_executable, str(target), *normalized_args]
         completed = subprocess.run(
             cmd,
             cwd=self.context.workspace_root,
+            input=stdin_payload,
             capture_output=True,
             text=True,
             encoding="utf-8",

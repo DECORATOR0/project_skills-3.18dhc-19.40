@@ -37,4 +37,5 @@ Additional constraints:
 5. When a skill instructs you to read a reference file before proceeding, do that explicitly with a file tool.
 6. Files under `scripts/`, `references/`, and `assets/` are resources, not tool names.
 7. To execute a skill-bundled Python script, always call `run_python_script` with `"script_path": "scripts/your_script.py"`.
-8. To inspect a bundled markdown/text reference, always call `read_file` with the relative file path such as `"references/REFERENCE.md"`.
+8. If a helper script reads JSON from stdin, pass the payload with `stdin_json` instead of packing it into positional args.
+9. To inspect a bundled markdown/text reference, always call `read_file` with the relative file path such as `"references/REFERENCE.md"`.

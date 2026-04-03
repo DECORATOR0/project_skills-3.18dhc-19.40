@@ -12,16 +12,56 @@ from .environment import SkillEnvironment
 from .schemas import ActorDecision, DatasetTask, to_dict
 from .skills import discover_skills, reset_experience_buffer, reset_skill_library
 from .task_buckets import classify_task_bucket
-from .utils import ensure_dir, slugify, utc_timestamp, write_json
+from .utils import ensure_dir, ensure_empty_dir, slugify, utc_timestamp, write_json
 
 
 class TaskLocalParallelTrainer:
     def __init__(self, config: SystemConfig):
         self.config = config
 
+    @staticmethod
+    def _metric_aliases() -> dict[str, str]:
+        return {
+            "TAO": "tool_any_order",
+            "TIO": "tool_in_order",
+            "TEM": "tool_exact_match",
+            "Efficiency": "efficiency",
+            "Parameters": "parameter_accuracy",
+            "Accuracy": "accuracy",
+        }
+
+    def _summarize_training_metrics(self, task_summaries: list[dict]) -> dict:
+        aliases = self._metric_aliases()
+        terminal_metrics = [
+            item.get("terminal_metrics", {})
+            for item in task_summaries
+        ]
+        return {
+            "task_count": len(task_summaries),
+            "success_count": sum(1 for item in task_summaries if item.get("task_success")),
+            "success_rate": round(
+                sum(1 for item in task_summaries if item.get("task_success")) / len(task_summaries),
+                4,
+            )
+            if task_summaries
+            else 0.0,
+            "avg_metrics": {
+                metric: round(sum(float(metrics.get(metric, 0.0)) for metrics in terminal_metrics) / len(terminal_metrics), 4)
+                if terminal_metrics
+                else 0.0
+                for metric in aliases.values()
+            },
+            "named_avg_metrics": {
+                name: round(sum(float(metrics.get(metric, 0.0)) for metrics in terminal_metrics) / len(terminal_metrics), 4)
+                if terminal_metrics
+                else 0.0
+                for name, metric in aliases.items()
+            },
+        }
+
     def prepare_run_dir(self, run_name: str | None = None) -> Path:
         run_dir = self.config.run_root / (run_name or f"task_local_parallel_{utc_timestamp()}")
-        ensure_dir(run_dir)
+        ensure_empty_dir(run_dir)
         write_json(
             run_dir / "config_snapshot.json",
             {
@@ -90,6 +130,15 @@ class TaskLocalParallelTrainer:
         task_success = False
         discard_reason = "iteration_limit_reached"
         last_skill_name = ""
+        terminal_metrics = {
+            "accuracy": 0.0,
+            "efficiency": 0.0,
+            "tool_any_order": 0.0,
+            "tool_in_order": 0.0,
+            "tool_exact_match": 0.0,
+            "parameter_accuracy": 0.0,
+            "task_success": False,
+        }
 
         for iteration_index in range(1, local_config.runtime.max_iterations_per_task + 1):
             iteration_dir = ensure_dir(task_dir / f"iteration_{iteration_index:02d}")
@@ -120,6 +169,7 @@ class TaskLocalParallelTrainer:
                 "evaluation": state.env_result.evaluation.__dict__,
                 "reward": reward.__dict__,
             }
+            terminal_metrics = state.env_result.evaluation.__dict__
 
             if state.env_result.evaluation.task_success:
                 task_success = True
@@ -197,6 +247,7 @@ class TaskLocalParallelTrainer:
             "retained": bool(task_success and final_skill_dir),
             "discard_reason": discard_reason,
             "iterations": iteration_records,
+            "terminal_metrics": terminal_metrics,
             "final_skill_name": last_skill_name,
             "final_skill_dir": final_skill_dir,
             "local_skill_library_root": str(local_config.skill_library_root),
@@ -273,6 +324,8 @@ class TaskLocalParallelTrainer:
             "task_count": len(task_summaries),
             "retained_count": sum(1 for item in task_summaries if item.get("retained")),
             "success_count": sum(1 for item in task_summaries if item.get("task_success")),
+            "training_metric_basis": "Each task contributes the terminal evaluation from its final training iteration; tasks that succeed early stop immediately and contribute that success iteration.",
+            "training_metrics": self._summarize_training_metrics(task_summaries),
             "tasks": task_summaries,
         }
         write_json(run_dir / "run_summary.json", run_summary)

@@ -149,8 +149,12 @@ def build_task_set_manifest(
     *,
     seed: int = 20260403,
     bucket_quotas: dict[str, int] | None = None,
+    quota_scale: int = 1,
 ) -> dict:
+    if quota_scale <= 0:
+        raise ValueError("quota_scale must be >= 1")
     quotas = dict(DEFAULT_BUCKET_QUOTAS)
+    quotas = {bucket: count * quota_scale for bucket, count in quotas.items()}
     quotas.update(bucket_quotas or {})
     rng = random.Random(seed)
 
@@ -164,15 +168,9 @@ def build_task_set_manifest(
     chosen_ids: set[str] = set()
     selected: dict[str, list[TaskBucketInfo]] = defaultdict(list)
 
-    def ranked_candidates(items: list[TaskBucketInfo]) -> list[TaskBucketInfo]:
-        ordered = sorted(items, key=lambda item: (item.file_count, int(item.original_question_id)))
-        shortlist = ordered[: max(1, min(len(ordered), 3 * max(1, len(ordered) // 4)))]
-        rng.shuffle(shortlist)
-        remainder = [item for item in ordered if item not in shortlist]
-        return shortlist + remainder
-
     for bucket, count in quotas.items():
-        bucket_candidates = [item for item in ranked_candidates(by_bucket.get(bucket, [])) if item.original_question_id not in chosen_ids]
+        bucket_candidates = [item for item in by_bucket.get(bucket, []) if item.original_question_id not in chosen_ids]
+        rng.shuffle(bucket_candidates)
         if len(bucket_candidates) < count:
             raise ValueError(f"Bucket {bucket} only has {len(bucket_candidates)} available tasks, need {count}.")
         selected[bucket] = bucket_candidates[:count]
@@ -204,6 +202,9 @@ def build_task_set_manifest(
 
     return {
         "seed": seed,
+        "quota_scale": quota_scale,
+        "selection_policy": "bucket_random_uniform_no_light_bias",
+        "smoke_policy": "per_modality_min_file_count_within_selected",
         "bucket_quotas": quotas,
         "modalities": {
             modality: sorted(items, key=lambda item: int(item["original_question_id"]))

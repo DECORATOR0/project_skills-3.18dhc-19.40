@@ -1,0 +1,574 @@
+{
+  "seed": 20260403,
+  "quota_scale": 2,
+  "selection_policy": "bucket_random_uniform_no_light_bias",
+  "smoke_policy": "per_modality_min_file_count_within_selected",
+  "bucket_quotas": {
+    "drought-tvdi": 4,
+    "ati": 6,
+    "thermal-retrieval": 10,
+    "derived-index": 6,
+    "timeseries-aggregation": 6,
+    "hotspot-fire": 4,
+    "arithmetic": 4,
+    "scene": 4,
+    "counting": 4,
+    "grounding-geometry": 6,
+    "area-change": 6
+  },
+  "modalities": {
+    "spectrum": [
+      {
+        "task_id": "earth-bench-c-3",
+        "original_question_id": "3",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "drought-tvdi",
+        "file_count": 14,
+        "prompt": "Based on the temperature and vegetation indicators (NDVI and LST) in the Yellow River Basin region from June to September 2023, calculate the number of spikes in the drought index, which may correspond to severe drought events."
+      },
+      {
+        "task_id": "earth-bench-c-5",
+        "original_question_id": "5",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "drought-tvdi",
+        "file_count": 22,
+        "prompt": "Based on temperature and vegetation indices (NDVI and LST) in the Central Valley of California, U.S., from May to October 2021, calculate the number of times when more than 40% of the area exhibited a drought index value exceeding 0.7, indicating widespread extreme drought."
+      },
+      {
+        "task_id": "earth-bench-c-18",
+        "original_question_id": "18",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 670,
+        "prompt": "Using MODIS surface reflectance bands b02, b05, b17, b18, and b19 (corresponding to 0.865 μm, 1.240 μm, 0.905 μm, 0.936 μm, and 0.940 μm respectively) over the Loess Plateau from 2018 to 2022, apply the band ratio method to estimate yearly atmospheric absorption values. Calculate the observed linear trend over this period."
+      },
+      {
+        "task_id": "earth-bench-c-19",
+        "original_question_id": "19",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 110,
+        "prompt": "Using MODIS bands b02, b05, b17, b18, and b19 (corresponding to 0.865 μm, 1.240 μm, 0.905 μm, 0.936 μm, and 0.940 μm respectively), monitor atmospheric absorption over the coast of Guangdong during July 20–29, 2023.Calculate the peak value of absorption observed during this period using the band ratio method."
+      },
+      {
+        "task_id": "earth-bench-c-22",
+        "original_question_id": "22",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 5,
+        "prompt": "Using TES-derived land surface temperature and emissivity from ASTER Bands 10–14 on June 15, 2022, over the Los Angeles metropolitan area, identify and count pixels where LST exceeds 310 K and emissivity variation (Δε) exceeds 0.08, representing thermal hotspots linked to intense urban heating."
+      },
+      {
+        "task_id": "earth-bench-c-23",
+        "original_question_id": "23",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 5,
+        "prompt": "Based on TES output from ASTER thermal bands on March 24, 2020 in the Sahara Desert region near Tamanrasset, Algeria, calculate the proportion of the area where emissivity variation (Δε) exceeds 0.05, indicating possible land cover heterogeneity."
+      },
+      {
+        "task_id": "earth-bench-c-35",
+        "original_question_id": "35",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 4,
+        "prompt": "Based on thermal Band 31 and 32 data from the central urban area of July 15, 2022, apply the split-window algorithm to compute LST. Define high-temperature zones as LST > 310 K. Calculate the change in the percentage of high-temperature area."
+      },
+      {
+        "task_id": "earth-bench-c-41",
+        "original_question_id": "41",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "ati",
+        "file_count": 110,
+        "prompt": "Calculate the change in average Apparent Thermal Inertia (ATI) between July 1 and July 15, 2020, over the Mediterranean island of Cyprus. Calculate the approximate change."
+      },
+      {
+        "task_id": "earth-bench-c-42",
+        "original_question_id": "42",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "ati",
+        "file_count": 244,
+        "prompt": "Using Apparent Thermal Inertia (ATI) calculated from satellite thermal bands and albedo, analyze and visualize the areas with lowest ATI values (below 1.0) indicating potential drought stress in the Sahel region for the month of May 2023. Calculate the proportion of the region is affected."
+      },
+      {
+        "task_id": "earth-bench-c-43",
+        "original_question_id": "43",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "ati",
+        "file_count": 142,
+        "prompt": "Define a thermal anomaly as Apparent Thermal Inertia (ATI) below 1.2. Based on ATI data derived from daytime/nighttime brightness temperature and albedo in the agricultural region of Central Valley, California  during July 2022, count the number of days the anomaly occurs."
+      },
+      {
+        "task_id": "earth-bench-c-44",
+        "original_question_id": "44",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "ati",
+        "file_count": 552,
+        "prompt": "Based on Apparent Thermal Inertia (ATI) calculated from daytime and nighttime brightness temperature and surface albedo over the urban area of Beijing, China from June 1 to September 30, 2019, calculate the monthly ATI trend. Calculate the month which shows the largest decrease in ATI?"
+      },
+      {
+        "task_id": "earth-bench-c-76",
+        "original_question_id": "76",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 4,
+        "prompt": "Calculate the land surface temperature (LST) over the Taklamakan Desert near Hotan on February 23, 2020 using the split-window algorithm with Thermal Bands 31 and 32 and their emissivity values. Calculate the average LST, then determine the proportion of pixels exceeding 115% of this average."
+      },
+      {
+        "task_id": "earth-bench-c-81",
+        "original_question_id": "81",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 158,
+        "prompt": "Based on MODIS Day and Night brightness temperature and emissivity Bands 31 over the North American Great Plains during July 2023, calculate the daily proportion of pixels with daytime LST exceeding 315 K, and then compute the average of these daily proportions for the month."
+      },
+      {
+        "task_id": "earth-bench-c-82",
+        "original_question_id": "82",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 140,
+        "prompt": "Using MODIS Day and Night brightness temperature and emissivity Band 31 data over the Ganges River Basin during January 2021, identify the number of days when over 35% of the region had daytime LST values greater than 310 K."
+      },
+      {
+        "task_id": "earth-bench-c-84",
+        "original_question_id": "84",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 140,
+        "prompt": " Using MODIS daytime brightness temperature and emissivity (Band 31) over the southern Sahara edge during July 2023, calculate the average daily percentage of pixels with daytime LST exceeding 315 K."
+      },
+      {
+        "task_id": "earth-bench-c-86",
+        "original_question_id": "86",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "ati",
+        "file_count": 12,
+        "prompt": "Calculate the difference in average Apparent Thermal Inertia (ATI) between July 5 and July 10, 2020, over the Mediterranean island of Cyprus. Estimate the change based on ATI values."
+      },
+      {
+        "task_id": "earth-bench-c-89",
+        "original_question_id": "89",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "ati",
+        "file_count": 141,
+        "prompt": "Using ATI derived from daytime and nighttime brightness temperature and surface albedo over urban Beijing during July 2019, compute daily ATI and calculate the average ATI value across all valid pixels for the month."
+      },
+      {
+        "task_id": "earth-bench-c-91",
+        "original_question_id": "91",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "drought-tvdi",
+        "file_count": 8,
+        "prompt": "Calculate the proportion of pixels with TVDI > 0.7 in June and August 2023 over the Yellow River Basin, then compute the absolute difference between these two values."
+      },
+      {
+        "task_id": "earth-bench-c-96",
+        "original_question_id": "96",
+        "runtime_family": "earth-spectrum-thermal-retrieval",
+        "bucket": "thermal-retrieval",
+        "file_count": 30,
+        "prompt": "Estimate daily atmospheric water vapor using the band ratio method applied to MODIS surface reflectance bands b02, b05, b17, b18, and b19 over the Loess Plateau in January 2018 and January 2022. Determine the 70th percentile of daily averages for each year, and compute their absolute difference to quantify the interannual change in atmospheric moisture levels."
+      },
+      {
+        "task_id": "earth-bench-c-98",
+        "original_question_id": "98",
+        "runtime_family": "earth-spectrum-drought-stress",
+        "bucket": "drought-tvdi",
+        "file_count": 4,
+        "prompt": "Over the Yellow River Basin in August 2023, calculate TVDI using NDVI and LST data. Identify all pixels with TVDI > 0.7, then compute the mean NDVI of these pixels to assess vegetation status in drought-affected regions."
+      }
+    ],
+    "products": [
+      {
+        "task_id": "earth-bench-c-105",
+        "original_question_id": "105",
+        "runtime_family": "earth-product-raster-arithmetic",
+        "bucket": "arithmetic",
+        "file_count": 21,
+        "prompt": "Based on the nighttime light intensity in London in 2015 and 2020, and the non-residential building volume data for the same years, calculate the commercial energy saving in London over the five-year period, and give the percentage of change."
+      },
+      {
+        "task_id": "earth-bench-c-111",
+        "original_question_id": "111",
+        "runtime_family": "earth-product-timeseries",
+        "bucket": "timeseries-aggregation",
+        "file_count": 60,
+        "prompt": "Compare the average rainfall in Colima and Boston (July 2018) and calculate the difference."
+      },
+      {
+        "task_id": "earth-bench-c-112",
+        "original_question_id": "112",
+        "runtime_family": "earth-product-timeseries",
+        "bucket": "timeseries-aggregation",
+        "file_count": 12,
+        "prompt": "Analyze the nighttime light intensity trend in Leon (2013-2024) using linear regression."
+      },
+      {
+        "task_id": "earth-bench-c-119",
+        "original_question_id": "119",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "hotspot-fire",
+        "file_count": 12,
+        "prompt": "Analyze vegetation hotspots in Shennongjia Forest Reserve (2022 growing season) and determine the peak coverage period."
+      },
+      {
+        "task_id": "earth-bench-c-123",
+        "original_question_id": "123",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "derived-index",
+        "file_count": 4,
+        "prompt": "Determine Lake Baikal's peak turbidity event during July 2022 thermal stratification using MODIS sur_refl_b01 data."
+      },
+      {
+        "task_id": "earth-bench-c-125",
+        "original_question_id": "125",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "derived-index",
+        "file_count": 60,
+        "prompt": "Process Lake Geneva's NDVI data (August 2022) to determine peak vegetation coverage and NDVI extremes."
+      },
+      {
+        "task_id": "earth-bench-c-126",
+        "original_question_id": "126",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "hotspot-fire",
+        "file_count": 22,
+        "prompt": "Assess wildfire trends in NSW (Oct-Dec 2023) through NBR index analysis."
+      },
+      {
+        "task_id": "earth-bench-c-141",
+        "original_question_id": "141",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "derived-index",
+        "file_count": 124,
+        "prompt": "Evaluate Dead Sea turbidity changes (Aug 2020-2022) using NDTI index analysis."
+      },
+      {
+        "task_id": "earth-bench-c-145",
+        "original_question_id": "145",
+        "runtime_family": "earth-product-timeseries",
+        "bucket": "timeseries-aggregation",
+        "file_count": 30,
+        "prompt": "Based on the precipitation index of the Congo Rainforest from May 1 to May 31, 2025. Determine the rainfall trend over these 31 days using linear trend."
+      },
+      {
+        "task_id": "earth-bench-c-148",
+        "original_question_id": "148",
+        "runtime_family": "earth-product-raster-arithmetic",
+        "bucket": "arithmetic",
+        "file_count": 24,
+        "prompt": "Based on the night light intensity in Los Angeles in 2015 and 2020, and the non-residential building volume data in the same years, calculate the average night light intensity per unit non-residential building volume in 2015 and 2020. Determined the commercial energy savings in Los Angeles over the five years and give the difference between the two."
+      },
+      {
+        "task_id": "earth-bench-c-153",
+        "original_question_id": "153",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "derived-index",
+        "file_count": 23,
+        "prompt": "Based on the NDVI data of Wind River Indian from January 1, 2021 to December 30, 2021, the proportion of areas above the NDVI mean for each day was calculated and visualized in green in the figure."
+      },
+      {
+        "task_id": "earth-bench-c-155",
+        "original_question_id": "155",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "derived-index",
+        "file_count": 10,
+        "prompt": "Define areas with more than a 30% increase in turbidity as severely polluted, calculate the proportion of such areas relative to the entire lake for each date, and identify the day with the highest proportion of severe pollution."
+      },
+      {
+        "task_id": "earth-bench-c-158",
+        "original_question_id": "158",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "derived-index",
+        "file_count": 60,
+        "prompt": "Define the area where NDWI is greater than 0.3 as a water body. Based on the sur_refl_b02 and sur_refl_b04 data of the Great Lakes on July, 2022, calculate the water body indicator NDWI and get the day with the highest NDWI."
+      },
+      {
+        "task_id": "earth-bench-c-161",
+        "original_question_id": "161",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "hotspot-fire",
+        "file_count": 18,
+        "prompt": "Define fire hotspots as areas with an NBR less than -0.3. Calculate the change in the NBR index over time based on sur_refl_b02 and sur_refl_b07 data for California, USA, from January 1 to March 30, 2025. Determine in which direction (east, west, south, or north) these hotspots are most concentrated."
+      },
+      {
+        "task_id": "earth-bench-c-166",
+        "original_question_id": "166",
+        "runtime_family": "earth-product-timeseries",
+        "bucket": "timeseries-aggregation",
+        "file_count": 18,
+        "prompt": "Define extreme loss as a decrease in NDSI greater than 0.3. Based on the sur_refl_b04 and sur_refl_b06 data in Greenland and 2024, calculate the NDSI of the region, and determine the proportion of Greenland's extreme loss area."
+      },
+      {
+        "task_id": "earth-bench-c-173",
+        "original_question_id": "173",
+        "runtime_family": "earth-product-timeseries",
+        "bucket": "timeseries-aggregation",
+        "file_count": 1,
+        "prompt": "Based on the B10 band data (in Kelvin) of Reykholt on January 2024-01-18, calculate the surface temperature (in °C) . The answer should be kept to three decimal places."
+      },
+      {
+        "task_id": "earth-bench-c-174",
+        "original_question_id": "174",
+        "runtime_family": "earth-product-timeseries",
+        "bucket": "timeseries-aggregation",
+        "file_count": 7,
+        "prompt": "Based on the B10 data for Reykholt from January 1 to March 30, 2025 (in degrees Kelvin), determine the mean surface temperature in Celsius for the period."
+      },
+      {
+        "task_id": "earth-bench-c-180",
+        "original_question_id": "180",
+        "runtime_family": "earth-product-derived-index-change",
+        "bucket": "hotspot-fire",
+        "file_count": 31,
+        "prompt": "Based on fire MaxFRP in Thailand from 2018-08-01 to 2018-08-31, the areas with MaxFRP>0 are considered as fire-prone areas. Use hotspot to determine which areas are most prone to fires."
+      },
+      {
+        "task_id": "earth-bench-c-186",
+        "original_question_id": "186",
+        "runtime_family": "earth-product-raster-arithmetic",
+        "bucket": "arithmetic",
+        "file_count": 8,
+        "prompt": "Based on the built_volume_total data of Shanghai from 1980 to 2025, calculate the total change in building volume for Shanghai between 1985 and 2020 and compute the percentage change."
+      },
+      {
+        "task_id": "earth-bench-c-188",
+        "original_question_id": "188",
+        "runtime_family": "earth-product-raster-arithmetic",
+        "bucket": "arithmetic",
+        "file_count": 16,
+        "prompt": "Based on the built_volume_total and built_volume_nres data of Shanghai from 1980 to 2025, calculate the ratio of built_volume_nres to built_volume_total, and analyze the linear trend of the ratio"
+      }
+    ],
+    "rgb": [
+      {
+        "task_id": "earth-bench-c-190",
+        "original_question_id": "190",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "scene",
+        "file_count": 6,
+        "prompt": "Based on the following images, every image belongs to {Airport, BareLand, BaseballField, Beach, Bridge, Center, Church, Commercial, DenseResidential, Desert, Farmland, Forest, Industrial, Meadow, MediumResidential, Mountain, Park, Parking, Playground, Pond, Port, RailwayStation, Resort, River, School, SparseResidential, Square, Stadium, StorageTanks, Viaduct}, determine the number of images captured in park areas."
+      },
+      {
+        "task_id": "earth-bench-c-192",
+        "original_question_id": "192",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "scene",
+        "file_count": 12,
+        "prompt": "Based on the following images, every image belongs to {Airport, BareLand, BaseballField, Beach, Bridge, Center, Church, Commercial, DenseResidential, Desert, Farmland, Forest, Industrial, Meadow, MediumResidential, Mountain, Park, Parking, Playground, Pond, Port, RailwayStation, Resort, River, School, SparseResidential, Square, Stadium, StorageTanks, Viaduct}, determine the number of images captured in bridge areas."
+      },
+      {
+        "task_id": "earth-bench-c-195",
+        "original_question_id": "195",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "scene",
+        "file_count": 12,
+        "prompt": "Based on the following images, every image belongs to {Airport, BareLand, BaseballField, Beach, Bridge, Center, Church, Commercial, DenseResidential, Desert, Farmland, Forest, Industrial, Meadow, MediumResidential, Mountain, Park, Parking, Playground, Pond, Port, RailwayStation, Resort, River, School, SparseResidential, Square, Stadium, StorageTanks, Viaduct}, determine the number of images captured in farmland areas."
+      },
+      {
+        "task_id": "earth-bench-c-200",
+        "original_question_id": "200",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "scene",
+        "file_count": 12,
+        "prompt": "Based on the following images, every image belongs to {Airport, BareLand, BaseballField, Beach, Bridge, Center, Church, Commercial, DenseResidential, Desert, Farmland, Forest, Industrial, Meadow, MediumResidential, Mountain, Park, Parking, Playground, Pond, Port, RailwayStation, Resort, River, School, SparseResidential, Square, Stadium, StorageTanks, Viaduct}, determine the number of images captured in pond areas."
+      },
+      {
+        "task_id": "earth-bench-c-204",
+        "original_question_id": "204",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "counting",
+        "file_count": 3,
+        "prompt": "The city is planning a regional sports facility investment. Based on aerial imagery, which areas seem to have the most developed baseball infrastructure? Sort the regions accordingly."
+      },
+      {
+        "task_id": "earth-bench-c-206",
+        "original_question_id": "206",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "counting",
+        "file_count": 3,
+        "prompt": "To promote equal access to sports facilities, the local government wants to identify areas that may be underserved. Based on the number of basketball courts in each aerial image, sort the regions accordingly."
+      },
+      {
+        "task_id": "earth-bench-c-210",
+        "original_question_id": "210",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "area-change",
+        "file_count": 1,
+        "prompt": "As part of a regional sports infrastructure audit, you are tasked with estimating their total area using bounding boxes (GSD = 0.13 m/px)."
+      },
+      {
+        "task_id": "earth-bench-c-212",
+        "original_question_id": "212",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "area-change",
+        "file_count": 1,
+        "prompt": "To help city planners visualize the proportion of urban space dedicated to tennis courts, estimate the total area of all detected tennis courts (calculated using bounding boxes, gsd = 0.13 px / m)."
+      },
+      {
+        "task_id": "earth-bench-c-214",
+        "original_question_id": "214",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "counting",
+        "file_count": 3,
+        "prompt": "To compare recreational land use across different city zones, identify all tennis courts in three aerial images (A, B, and C), each with a different ground resolution. Rank all detected courts by built-up area (estimated by bounding boxes, GSD: A = 0.12 m/px, B = 0.14 m/px, C = 0.11 m/px)."
+      },
+      {
+        "task_id": "earth-bench-c-217",
+        "original_question_id": "217",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "area-change",
+        "file_count": 1,
+        "prompt": "What is the total building area in the image (in pixels)?"
+      },
+      {
+        "task_id": "earth-bench-c-223",
+        "original_question_id": "223",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "area-change",
+        "file_count": 4,
+        "prompt": "Following a natural disaster, authorities are comparing the impact on Region A and Region B. Based on satellite images taken before and after the event, determine which region experienced more severe building damage."
+      },
+      {
+        "task_id": "earth-bench-c-225",
+        "original_question_id": "225",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "area-change",
+        "file_count": 2,
+        "prompt": "Based on satellite imagery before and after the natural disaster, determine how many buildings were completely destroyed using pre- and post-disaster satellite images."
+      },
+      {
+        "task_id": "earth-bench-c-227",
+        "original_question_id": "227",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "City planners are reviewing road infrastructure using satellite imagery. Calculate the centroid coordinates of the largest roundabout located furthest to the west in the image."
+      },
+      {
+        "task_id": "earth-bench-c-231",
+        "original_question_id": "231",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "counting",
+        "file_count": 3,
+        "prompt": "An environmental agency is monitoring industrial facilities for potential risk levels. Based on the following images, which region appears to contain the largest number of storage tanks, and how do the regions compare?"
+      },
+      {
+        "task_id": "earth-bench-c-239",
+        "original_question_id": "239",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "What is the distance between the two closest soccer ball fields in the image? (GSD = 0.28 m/px)"
+      },
+      {
+        "task_id": "earth-bench-c-240",
+        "original_question_id": "240",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Determine the bounding boxes of the farthest pair of harbor in the image."
+      },
+      {
+        "task_id": "earth-bench-c-245",
+        "original_question_id": "245",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "area-change",
+        "file_count": 2,
+        "prompt": "Determine the area change of the destroyed building. (GSD = 0.28 m/px)"
+      },
+      {
+        "task_id": "earth-bench-c-246",
+        "original_question_id": "246",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Determine the centroid coordinates of the region that corresponds to the following description: “Search the third storage tank that is about 862 square meters in the east side of some storage tanks. There is a river, located approximately 71 meters west of the storage tank.” (GSD = 2.00 m/px)"
+      },
+      {
+        "task_id": "earth-bench-c-247",
+        "original_question_id": "247",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Determine the centroid coordinates of the region that corresponds to: “The largest tennis court on the northernmost side.” (GSD = 1.00 m/px)"
+      },
+      {
+        "task_id": "earth-bench-c-248",
+        "original_question_id": "248",
+        "runtime_family": "earth-rgb-perception-change",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Determine the centroid coordinates of the region that corresponds to: “The largest tennis court”"
+      }
+    ]
+  },
+  "all_task_ids": [
+    "3",
+    "5",
+    "91",
+    "98",
+    "41",
+    "42",
+    "43",
+    "44",
+    "86",
+    "89",
+    "18",
+    "19",
+    "22",
+    "23",
+    "35",
+    "76",
+    "81",
+    "82",
+    "84",
+    "96",
+    "123",
+    "125",
+    "141",
+    "153",
+    "155",
+    "158",
+    "111",
+    "112",
+    "145",
+    "166",
+    "173",
+    "174",
+    "119",
+    "126",
+    "161",
+    "180",
+    "105",
+    "148",
+    "186",
+    "188",
+    "190",
+    "192",
+    "195",
+    "200",
+    "204",
+    "206",
+    "214",
+    "231",
+    "227",
+    "239",
+    "240",
+    "246",
+    "247",
+    "248",
+    "210",
+    "212",
+    "217",
+    "223",
+    "225",
+    "245"
+  ],
+  "smoke_task_ids": [
+    "35",
+    "173",
+    "210"
+  ]
+}

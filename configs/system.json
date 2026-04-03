@@ -4,21 +4,27 @@
     "base_url": "http://35.220.164.252:3888/v1",
     "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
     "temperature": 0.3,
-    "timeout_seconds": 180
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
   },
   "critic": {
     "model": "qwen3-8b",
     "base_url": "http://35.220.164.252:3888/v1",
     "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
     "temperature": 0.3,
-    "timeout_seconds": 180
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
   },
   "router": {
     "model": "qwen3-8b",
     "base_url": "http://35.220.164.252:3888/v1",
     "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
     "temperature": 0.1,
-    "timeout_seconds": 180
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
   },
   "executor": {
     "model": "qwen3-8b",
@@ -26,7 +32,9 @@
     "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
     "temperature": 0.1,
     "max_tokens": 8192,
-    "timeout_seconds": 180
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
   },
   "paths": {
     "workspace_root": "/data/xsy/project_skills-3.18dhc-19.40",
@@ -41,7 +49,7 @@
   "runtime": {
     "max_router_candidates": 64,
     "skill_match_threshold": 80.0,
-    "max_executor_steps": 10,
+    "max_executor_steps": 20,
     "max_actor_steps": 8,
     "max_iterations_per_task": 10,
     "skill_count_limit": 6,

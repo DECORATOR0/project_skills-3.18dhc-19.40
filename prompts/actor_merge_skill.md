@@ -8,6 +8,7 @@ Merge principles:
 5. If multiple source skills rely on repeated code logic, consolidate that logic into scripts.
 6. Add a narrow `allowed-tools` frontmatter field when the merged workflow has a stable tool subset.
 7. If scripts are referenced, describe them as `run_python_script` calls rather than as standalone tool names.
+8. If a merged helper script reads JSON from stdin, instruct the executor to pass the payload via `stdin_json`.
 
 Critic reward:
 {reward_json}

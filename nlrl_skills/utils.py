@@ -16,6 +16,13 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def ensure_empty_dir(path: Path) -> Path:
+    if path.exists() and any(path.iterdir()):
+        raise FileExistsError(f"Directory already exists and is not empty: {path}")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -54,6 +61,10 @@ def extract_json_object(text: str) -> dict[str, Any]:
     text = text.strip()
     if not text:
         raise ValueError("Empty model response; expected JSON object.")
+    text = re.sub(r"(?is)<think>.*?</think>\s*", "", text).strip()
+    fence_match = re.search(r"(?is)^```(?:json)?\s*(.*?)\s*```$", text)
+    if fence_match:
+        text = fence_match.group(1).strip()
     try:
         data = json.loads(text)
         if not isinstance(data, dict):

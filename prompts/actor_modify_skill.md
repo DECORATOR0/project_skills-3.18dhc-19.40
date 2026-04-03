@@ -9,6 +9,7 @@ Revision objectives:
 6. Preserve the skill's useful prior coverage.
 7. Tighten `allowed-tools` when reducing executor drift would help.
 8. If the skill uses bundled scripts, explicitly instruct the executor to invoke them through `run_python_script` rather than treating file paths as tool names.
+9. If a bundled script reads JSON from stdin, explicitly say to pass the payload via `stdin_json`.
 
 Critic reward:
 {reward_json}

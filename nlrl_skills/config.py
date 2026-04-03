@@ -17,6 +17,8 @@ class LLMConfig:
     temperature: float = 0.2
     max_tokens: int | None = None
     timeout_seconds: int = 180
+    enable_thinking: bool | None = None
+    stream: bool = False
 
 
 @dataclass
@@ -123,6 +125,8 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
     shared_temperature = _env_override("NLRL_LLM_TEMPERATURE")
     shared_timeout = _env_override("NLRL_LLM_TIMEOUT_SECONDS")
     shared_max_tokens = _env_override("NLRL_LLM_MAX_TOKENS")
+    shared_enable_thinking = _env_override("NLRL_LLM_ENABLE_THINKING")
+    shared_stream = _env_override("NLRL_LLM_STREAM")
 
     raw_max_tokens = data.get("max_tokens")
     if name == "executor" and raw_max_tokens is None:
@@ -134,6 +138,18 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
         max_tokens = int(resolved_max_tokens)
     elif raw_max_tokens is not None:
         max_tokens = int(raw_max_tokens)
+    enable_thinking_raw = _env_override(f"{role_prefix}_ENABLE_THINKING") or shared_enable_thinking
+    enable_thinking: bool | None = None
+    if enable_thinking_raw is not None:
+        enable_thinking = enable_thinking_raw.strip().lower() in {"1", "true", "yes", "on"}
+    elif "enable_thinking" in data:
+        value = data.get("enable_thinking")
+        enable_thinking = None if value is None else bool(value)
+    stream_raw = _env_override(f"{role_prefix}_STREAM") or shared_stream
+    if stream_raw is not None:
+        stream = stream_raw.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        stream = bool(data.get("stream", False))
     return LLMConfig(
         name=name,
         model=_env_override(f"{role_prefix}_MODEL") or shared_model or data["model"],
@@ -142,6 +158,8 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
         temperature=float(_env_override(f"{role_prefix}_TEMPERATURE") or shared_temperature or data.get("temperature", 0.2)),
         max_tokens=max_tokens,
         timeout_seconds=int(_env_override(f"{role_prefix}_TIMEOUT_SECONDS") or shared_timeout or data.get("timeout_seconds", 180)),
+        enable_thinking=enable_thinking,
+        stream=stream,
     )
 
 

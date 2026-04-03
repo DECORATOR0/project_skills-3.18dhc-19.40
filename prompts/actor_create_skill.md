@@ -8,6 +8,7 @@ Design objectives:
 5. If the task repeatedly requires arithmetic, parsing, batching, or path handling, include a reusable script in `scripts/`.
 6. The skill must be usable by a weaker executor model. Make defaults explicit and reduce ambiguity.
 7. When you reference a script in the skill body, explicitly instruct the executor to call `run_python_script` with `script_path="scripts/..."`. Do not write the script path as if it were a standalone tool name.
+8. If the script reads JSON from stdin, explicitly tell the executor to pass that payload via `stdin_json`.
 
 Current task:
 {task_json}
@@ -43,3 +44,4 @@ Hard requirements for `SKILL.md`:
 4. The body must contain concrete execution guidance, not generic advice.
 5. Include clear tool-use defaults.
 6. If a script is introduced, the instructions must explicitly tell the executor when to call it.
+7. If a script reads JSON from stdin, the instructions must say to pass the payload via `stdin_json`.

@@ -9,7 +9,7 @@ from .data import load_converted_dataset, select_task, select_tasks
 from .environment import SkillEnvironment
 from .schemas import DatasetTask, TrainIterationRecord, to_dict
 from .skills import discover_skills
-from .utils import ensure_dir, utc_timestamp, write_json
+from .utils import ensure_dir, ensure_empty_dir, utc_timestamp, write_json
 
 
 class SkillRLTrainer:
@@ -21,7 +21,7 @@ class SkillRLTrainer:
 
     def prepare_run_dir(self, run_name: str | None = None) -> Path:
         run_dir = self.config.run_root / (run_name or f"run_{utc_timestamp()}")
-        ensure_dir(run_dir)
+        ensure_empty_dir(run_dir)
         write_json(run_dir / "config_snapshot.json", to_dict(self.config))
         return run_dir
 

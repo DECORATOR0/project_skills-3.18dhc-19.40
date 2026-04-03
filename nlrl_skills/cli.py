@@ -43,8 +43,9 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect-skills", help="Inspect current generated skill headers.")
     inspect.add_argument("--output", help="Optional JSON output path")
 
-    sample = sub.add_parser("sample-task-set", help="Create a stratified 30-task training set and export concrete task-id files.")
+    sample = sub.add_parser("sample-task-set", help="Create a stratified training set and export concrete task-id files.")
     sample.add_argument("--seed", type=int, default=20260403, help="Fixed random seed used inside the bucket sampler.")
+    sample.add_argument("--quota-scale", type=int, default=1, help="Multiply the default per-bucket quotas. `2` turns the default 30-task recipe into 60 tasks.")
     sample.add_argument("--output-dir", help="Output directory for generated task-id files and manifest.")
 
     train = sub.add_parser("debug-single-task", help="Run the full loop on one task for debugging.")
@@ -106,7 +107,7 @@ def main() -> None:
         from .data import load_converted_dataset
 
         output_dir = Path(args.output_dir) if args.output_dir else config.workspace_root / "data" / "task_sets" / f"task_local_parallel_seed_{args.seed}"
-        manifest = build_task_set_manifest(load_converted_dataset(config.converted_dataset_path), seed=args.seed)
+        manifest = build_task_set_manifest(load_converted_dataset(config.converted_dataset_path), seed=args.seed, quota_scale=args.quota_scale)
         export_task_set_manifest(output_dir, manifest)
         print(output_dir)
         return

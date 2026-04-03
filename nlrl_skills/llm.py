@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -57,13 +58,15 @@ class OpenAICompatibleLLM:
         limits = None
         if self.disable_keepalive:
             limits = httpx.Limits(max_connections=100, max_keepalive_connections=0)
-        return httpx.Client(
-            base_url=self.config.base_url.rstrip("/") + "/",
-            timeout=self.config.timeout_seconds,
-            trust_env=False,
-            headers=headers,
-            limits=limits,
-        )
+        client_kwargs = {
+            "base_url": self.config.base_url.rstrip("/") + "/",
+            "timeout": self.config.timeout_seconds,
+            "trust_env": False,
+            "headers": headers,
+        }
+        if limits is not None:
+            client_kwargs["limits"] = limits
+        return httpx.Client(**client_kwargs)
 
     def _rebuild_client(self) -> None:
         try:
@@ -123,17 +126,125 @@ class OpenAICompatibleLLM:
     def _supports_enable_thinking_flag(self) -> bool:
         return "qwen" in self.config.model.lower()
 
-    def chat(self, messages: list[LLMMessage], *, temperature: float | None = None, max_tokens: int | None = None) -> LLMCallResult:
+    def _build_payload(
+        self,
+        messages: list[LLMMessage],
+        *,
+        temperature: float | None,
+        max_tokens: int | None,
+    ) -> dict[str, Any]:
         payload = {
             "model": self.config.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "temperature": self.config.temperature if temperature is None else temperature,
         }
-        if self._supports_enable_thinking_flag():
-            payload["enable_thinking"] = False
+        if self._supports_enable_thinking_flag() and self.config.enable_thinking is not None:
+            payload["enable_thinking"] = self.config.enable_thinking
         resolved_max_tokens = self.config.max_tokens if max_tokens is None else max_tokens
         if resolved_max_tokens is not None:
             payload["max_tokens"] = resolved_max_tokens
+        return payload
+
+    def _extract_delta_text(self, chunk: dict[str, Any]) -> str:
+        choices = chunk.get("choices", [])
+        if not choices:
+            return ""
+        choice = choices[0]
+        delta = choice.get("delta", {})
+        if not isinstance(delta, dict):
+            delta = {}
+        fragments: list[str] = []
+        content = delta.get("content")
+        if isinstance(content, str):
+            fragments.append(content)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        fragments.append(text)
+        if not fragments:
+            message = choice.get("message", {})
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    fragments.append(content)
+                elif isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict):
+                            text = item.get("text")
+                            if isinstance(text, str):
+                                fragments.append(text)
+        return "".join(fragments)
+
+    def _chat_stream(self, payload: dict[str, Any]) -> LLMCallResult:
+        stream_payload = dict(payload)
+        stream_payload["stream"] = True
+        chunks: list[dict[str, Any]] = []
+        text_parts: list[str] = []
+        finish_reason = ""
+        with self._request_slot():
+            for attempt in range(1, self.max_retries + 1):
+                response = None
+                try:
+                    with self.client.stream("POST", "chat/completions", json=stream_payload) as response:
+                        response.raise_for_status()
+                        for raw_line in response.iter_lines():
+                            if raw_line is None:
+                                continue
+                            line = raw_line.strip()
+                            if not line:
+                                continue
+                            if isinstance(line, bytes):
+                                line = line.decode("utf-8", errors="replace")
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if not data:
+                                continue
+                            if data == "[DONE]":
+                                break
+                            chunk = json.loads(data)
+                            chunks.append(chunk)
+                            text = self._extract_delta_text(chunk)
+                            if text:
+                                text_parts.append(text)
+                            choices = chunk.get("choices", [])
+                            if choices and isinstance(choices[0], dict):
+                                reason = choices[0].get("finish_reason")
+                                if isinstance(reason, str) and reason:
+                                    finish_reason = reason
+                    assembled_text = "".join(text_parts).strip()
+                    if not assembled_text:
+                        raise ValueError("Streaming response produced empty content.")
+                    return LLMCallResult(
+                        text=assembled_text,
+                        raw_response={
+                            "stream": True,
+                            "chunk_count": len(chunks),
+                            "finish_reason": finish_reason,
+                            "last_chunk": chunks[-1] if chunks else {},
+                        },
+                        request_payload=stream_payload,
+                    )
+                except Exception as exc:  # pragma: no cover - network dependent
+                    if response is not None:
+                        try:
+                            response.close()
+                        except Exception:
+                            pass
+                    if attempt >= self.max_retries or not self._should_retry(exc):
+                        raise
+                    self._rebuild_client()
+                    backoff = self.retry_delay_seconds * attempt
+                    jitter = random.uniform(0, max(0.5, self.retry_delay_seconds / 2))
+                    time.sleep(backoff + jitter)
+        raise RuntimeError("Streaming LLM call exhausted retries without returning a response.")
+
+    def chat(self, messages: list[LLMMessage], *, temperature: float | None = None, max_tokens: int | None = None) -> LLMCallResult:
+        payload = self._build_payload(messages, temperature=temperature, max_tokens=max_tokens)
+        if self.config.stream:
+            return self._chat_stream(payload)
         last_error: Exception | None = None
         response: httpx.Response | None = None
         with self._request_slot():
@@ -158,6 +269,13 @@ class OpenAICompatibleLLM:
         if choices:
             message = choices[0].get("message", {})
             text = message.get("content") or ""
+        if isinstance(text, list):
+            text = "".join(
+                item.get("text", "")
+                for item in text
+                if isinstance(item, dict)
+            )
+        text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text or "").strip()
         return LLMCallResult(text=text, raw_response=raw_response, request_payload=payload)
 
     def chat_json(
