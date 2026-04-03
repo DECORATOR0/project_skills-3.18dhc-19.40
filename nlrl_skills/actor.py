@@ -69,9 +69,16 @@ class SkillActor:
     def _load_headers_map(self, headers: list[SkillHeader]) -> dict[str, SkillHeader]:
         return {header.name: header for header in headers}
 
-    def act(self, state: EnvState, reward: CriticReward, log_dir: Path) -> ActorDecision:
+    def act(
+        self,
+        state: EnvState,
+        reward: CriticReward,
+        log_dir: Path,
+        *,
+        forced_action_type: str | None = None,
+    ) -> ActorDecision:
         experience_buffer = load_experience_buffer(self.config.experience_buffer_path)
-        action_type = self._select_action_type(state, reward, log_dir)
+        action_type = forced_action_type or self._select_action_type(state, reward, log_dir)
         system_prompt = render_prompt(
             self.config.prompt_root / "actor_system.md",
             skill_count_limit=self.config.runtime.skill_count_limit,

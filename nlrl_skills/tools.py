@@ -6,13 +6,15 @@ import inspect
 import json
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, get_args, get_origin
 
 from .utils import ensure_dir, read_text, safe_relative_path, write_text
 
 EO_TOOL_FILES = ["Index.py", "Inversion.py", "Perception.py", "Analysis.py", "Statistics.py"]
+_TOOL_IMPORT_LOCK = threading.Lock()
 
 
 @dataclass
@@ -48,9 +50,9 @@ class EOToolRuntime:
         self._registry: dict[str, ToolSpec] = {}
         self._load_all()
 
-    def _parse_tool_nodes(self, path: Path) -> list[tuple[str, str, dict[str, Any]]]:
+    def _parse_tool_nodes(self, path: Path) -> list[tuple[str, str]]:
         tree = ast.parse(read_text(path))
-        parsed: list[tuple[str, str, dict[str, Any]]] = []
+        parsed: list[tuple[str, str]] = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):
                 continue
@@ -63,56 +65,173 @@ class EOToolRuntime:
                     for kw in dec.keywords:
                         if kw.arg == "description" and isinstance(kw.value, ast.Constant):
                             description = str(kw.value.value).strip()
-            params: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
-            for arg in node.args.args:
-                if arg.arg == "self":
-                    continue
-                params["properties"][arg.arg] = {
-                    "type": "string",
-                    "description": f"Argument {arg.arg}",
-                }
-            default_count = len(node.args.defaults)
-            required_count = len(node.args.args) - default_count
-            for idx, arg in enumerate(node.args.args):
-                if arg.arg == "self":
-                    continue
-                if idx < required_count:
-                    params["required"].append(arg.arg)
-            parsed.append((node.name, description, params))
+            parsed.append((node.name, description))
         return parsed
+
+    def _coerce_untyped_value(self, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return value
+        lowered = text.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        if text.startswith("[") or text.startswith("{") or text.startswith("("):
+            for loader in (json.loads, ast.literal_eval):
+                try:
+                    return loader(text)
+                except Exception:
+                    continue
+        try:
+            if any(token in text for token in (".", "e", "E")):
+                return float(text)
+            return int(text)
+        except Exception:
+            return value
+
+    def _annotation_to_schema(self, annotation: Any) -> dict[str, Any]:
+        if annotation in {inspect._empty, Any, None}:
+            return {"type": "string"}
+        origin = get_origin(annotation)
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if origin in {list, tuple, set}:
+            item_annotation = args[0] if args else Any
+            return {
+                "type": "array",
+                "items": self._annotation_to_schema(item_annotation),
+            }
+        if origin is dict:
+            return {"type": "object"}
+        if origin is not None and args:
+            return self._annotation_to_schema(args[0])
+        if annotation is bool:
+            return {"type": "boolean"}
+        if annotation is int:
+            return {"type": "integer"}
+        if annotation is float:
+            return {"type": "number"}
+        return {"type": "string"}
+
+    def _schema_from_signature(self, func: Callable[..., Any]) -> dict[str, Any]:
+        params: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+        sig = inspect.signature(func)
+        for arg_name, param in sig.parameters.items():
+            if arg_name == "self":
+                continue
+            schema = self._annotation_to_schema(param.annotation)
+            schema["description"] = f"Argument {arg_name}"
+            params["properties"][arg_name] = schema
+            if param.default is inspect._empty and param.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            ):
+                params["required"].append(arg_name)
+        return params
+
+    def _coerce_argument(self, value: Any, annotation: Any) -> Any:
+        if value is None:
+            return value
+        if annotation in {inspect._empty, Any, None}:
+            return self._coerce_untyped_value(value)
+        origin = get_origin(annotation)
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+
+        if origin in {list, tuple, set}:
+            item_annotation = args[0] if args else Any
+            parsed = value
+            if isinstance(value, str):
+                text = value.strip()
+                if text.startswith("[") or text.startswith("("):
+                    try:
+                        parsed = json.loads(text)
+                    except Exception:
+                        try:
+                            parsed = ast.literal_eval(text)
+                        except Exception:
+                            parsed = [item.strip() for item in text.split(",") if item.strip()]
+                else:
+                    parsed = [item.strip() for item in text.split(",") if item.strip()]
+            if not isinstance(parsed, (list, tuple, set)):
+                return parsed
+            coerced = [self._coerce_argument(item, item_annotation) for item in parsed]
+            if origin is tuple:
+                return tuple(coerced)
+            if origin is set:
+                return set(coerced)
+            return coerced
+
+        if origin is dict:
+            if isinstance(value, str):
+                text = value.strip()
+                for loader in (json.loads, ast.literal_eval):
+                    try:
+                        parsed = loader(text)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except Exception:
+                        continue
+            return value
+
+        if origin is not None and args:
+            return self._coerce_argument(value, args[0])
+
+        if annotation is bool and isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "1", "yes", "y"}:
+                return True
+            if lowered in {"false", "0", "no", "n"}:
+                return False
+            return value
+
+        if annotation is int and isinstance(value, str):
+            try:
+                return int(float(value.strip()))
+            except Exception:
+                return value
+
+        if annotation is float and isinstance(value, str):
+            try:
+                return float(value.strip())
+            except Exception:
+                return value
+
+        return value
 
     def _load_module(self, module_file: str) -> Any:
         module_path = self.tools_dir / module_file
         module_name = f"nlrl_runtime_{module_path.stem.lower()}_{abs(hash(str(module_path))) % 100000}"
-        old_argv = sys.argv[:]
-        try:
-            sys.argv = [str(module_path), "--temp_dir", str(self.temp_root / module_path.stem.lower())]
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
-            if spec is None or spec.loader is None:
-                raise RuntimeError(f"Cannot load {module_path}")
-            module = importlib.util.module_from_spec(spec)
-            if str(self.tools_dir) not in sys.path:
-                sys.path.insert(0, str(self.tools_dir))
-            spec.loader.exec_module(module)
-            return module
-        finally:
-            sys.argv = old_argv
+        with _TOOL_IMPORT_LOCK:
+            old_argv = sys.argv[:]
+            try:
+                sys.argv = [str(module_path), "--temp_dir", str(self.temp_root / module_path.stem.lower())]
+                spec = importlib.util.spec_from_file_location(module_name, module_path)
+                if spec is None or spec.loader is None:
+                    raise RuntimeError(f"Cannot load {module_path}")
+                module = importlib.util.module_from_spec(spec)
+                if str(self.tools_dir) not in sys.path:
+                    sys.path.insert(0, str(self.tools_dir))
+                spec.loader.exec_module(module)
+                return module
+            finally:
+                sys.argv = old_argv
 
     def _load_all(self) -> None:
         for module_file in EO_TOOL_FILES:
             source_path = self.tools_dir / module_file
             if not source_path.exists():
                 continue
-            parsed = {name: (desc, schema) for name, desc, schema in self._parse_tool_nodes(source_path)}
+            parsed = {name: desc for name, desc in self._parse_tool_nodes(source_path)}
             module = self._load_module(module_file)
             for name, value in vars(module).items():
                 if name not in parsed or not inspect.isfunction(value):
                     continue
-                desc, schema = parsed[name]
+                desc = parsed[name]
                 self._registry[name] = ToolSpec(
                     name=name,
                     description=desc or f"EO tool {name}",
-                    parameters=schema,
+                    parameters=self._schema_from_signature(value),
                     callable=value,
                     source=f"agent/tools/{module_file}",
                 )
@@ -129,7 +248,7 @@ class EOToolRuntime:
         for param_name, param in sig.parameters.items():
             if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY):
                 if param_name in arguments:
-                    accepted[param_name] = arguments[param_name]
+                    accepted[param_name] = self._coerce_argument(arguments[param_name], param.annotation)
         return func(**accepted)
 
 

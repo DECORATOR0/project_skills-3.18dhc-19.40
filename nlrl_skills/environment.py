@@ -8,7 +8,7 @@ from .config import SystemConfig
 from .evaluation import evaluate_execution
 from .prompting import render_prompt
 from .router import SkillRouter
-from .schemas import DatasetTask, EnvRunResult, EnvState, EvaluationResult, RouterResult, SkillDetail, SkillHeader, to_dict
+from .schemas import DatasetTask, EnvRunResult, EnvState, EvaluationResult, RouterResult, RouterSkillScore, SkillDetail, SkillHeader, to_dict
 from .skills import load_skill_detail
 from .tools import ToolContext, Toolbox
 from .utils import ensure_dir, write_json
@@ -36,10 +36,39 @@ class SkillEnvironment:
                 return load_skill_detail(header)
         return None
 
-    def run(self, task: DatasetTask, skill_headers: list[SkillHeader], run_dir: Path) -> EnvState:
+    def _forced_router_result(self, header: SkillHeader) -> RouterResult:
+        return RouterResult(
+            selected_skill=header.name,
+            has_applicable_skill=True,
+            scores=[
+                RouterSkillScore(
+                    skill_name=header.name,
+                    score=100.0,
+                    reason="Task-local single-skill execution bypassed router scoring.",
+                )
+            ],
+            trajectory="Router was bypassed because this task-local training loop only maintains one active skill.",
+            notes="forced-single-skill",
+        )
+
+    def run(
+        self,
+        task: DatasetTask,
+        skill_headers: list[SkillHeader],
+        run_dir: Path,
+        *,
+        forced_active_skill_name: str | None = None,
+    ) -> EnvState:
         ensure_dir(run_dir)
-        router_result = self.router.route(task, skill_headers, run_dir / "router")
-        active_skill = self._pick_active_skill(skill_headers, router_result)
+        if forced_active_skill_name:
+            forced_header = next((header for header in skill_headers if header.name == forced_active_skill_name), None)
+            if forced_header is None:
+                raise KeyError(f"Forced active skill not found: {forced_active_skill_name}")
+            router_result = self._forced_router_result(forced_header)
+            active_skill = load_skill_detail(forced_header)
+        else:
+            router_result = self.router.route(task, skill_headers, run_dir / "router")
+            active_skill = self._pick_active_skill(skill_headers, router_result)
         if not router_result.has_applicable_skill or active_skill is None:
             env_result = EnvRunResult(
                 final_answer="没有合适的skill",

@@ -33,6 +33,10 @@ from .config import (
 log = logging.getLogger(__name__)
 
 
+def _supports_enable_thinking_flag(model: str) -> bool:
+    return "qwen" in model.lower()
+
+
 def _build_client(base_url: str) -> OpenAI:
     return OpenAI(
         base_url=base_url,
@@ -69,8 +73,9 @@ def chat_completion(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "extra_body": {"enable_thinking": False},
     }
+    if _supports_enable_thinking_flag(model):
+        kwargs["extra_body"] = {"enable_thinking": False}
     if response_format:
         kwargs["response_format"] = response_format
 
@@ -121,8 +126,9 @@ async def async_chat_completion(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "extra_body": {"enable_thinking": False},
     }
+    if _supports_enable_thinking_flag(model):
+        kwargs["extra_body"] = {"enable_thinking": False}
     if response_format:
         kwargs["response_format"] = response_format
 

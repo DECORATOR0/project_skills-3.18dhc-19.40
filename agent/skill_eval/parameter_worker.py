@@ -66,6 +66,10 @@ def _client(base_url: str) -> OpenAI:
     )
 
 
+def _supports_enable_thinking_flag(model: str) -> bool:
+    return "qwen" in model.lower()
+
+
 _primary = _client(PARAMETER_MODEL_BASE_URL)
 _backup = _client(PARAMETER_MODEL_BACKUP_URL)
 
@@ -191,7 +195,7 @@ def _build_request_kwargs(
         ],
         "temperature": 0.0,
     }
-    if PARAMETER_MODEL_ENABLE_THINKING is not _MISSING:
+    if PARAMETER_MODEL_ENABLE_THINKING is not _MISSING and _supports_enable_thinking_flag(model):
         kwargs["extra_body"] = {"enable_thinking": PARAMETER_MODEL_ENABLE_THINKING}
     if use_tool_calling and planned_tool_name:
         schema = _tool_call_schema(planned_tool_name)

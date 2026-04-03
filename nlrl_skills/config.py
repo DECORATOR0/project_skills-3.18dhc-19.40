@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -84,30 +85,99 @@ class SystemConfig:
         return Path(self.paths.docs_root).resolve()
 
 
+def clone_system_config(
+    config: SystemConfig,
+    *,
+    paths: dict[str, Any] | None = None,
+    runtime: dict[str, Any] | None = None,
+    actor: dict[str, Any] | None = None,
+    critic: dict[str, Any] | None = None,
+    router: dict[str, Any] | None = None,
+    executor: dict[str, Any] | None = None,
+) -> SystemConfig:
+    path_overrides = {key: str(value) for key, value in (paths or {}).items() if value is not None}
+    return replace(
+        config,
+        actor=replace(config.actor, **(actor or {})),
+        critic=replace(config.critic, **(critic or {})),
+        router=replace(config.router, **(router or {})),
+        executor=replace(config.executor, **(executor or {})),
+        paths=replace(config.paths, **path_overrides),
+        runtime=replace(config.runtime, **(runtime or {})),
+    )
+
+
+def _env_override(*names: str) -> str | None:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None
+
+
 def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
+    role_prefix = f"NLRL_{name.upper()}"
+    shared_model = _env_override("NLRL_LLM_MODEL")
+    shared_base_url = _env_override("NLRL_LLM_BASE_URL")
+    shared_api_key = _env_override("NLRL_LLM_API_KEY")
+    shared_temperature = _env_override("NLRL_LLM_TEMPERATURE")
+    shared_timeout = _env_override("NLRL_LLM_TIMEOUT_SECONDS")
+    shared_max_tokens = _env_override("NLRL_LLM_MAX_TOKENS")
+
+    raw_max_tokens = data.get("max_tokens")
+    if name == "executor" and raw_max_tokens is None:
+        raw_max_tokens = 32768
+    max_tokens_override = _env_override(f"{role_prefix}_MAX_TOKENS")
     max_tokens: int | None = None
-    if name == "router":
-        max_tokens = int(data["max_tokens"]) if "max_tokens" in data else None
-    elif name == "executor":
-        max_tokens = int(data["max_tokens"]) if "max_tokens" in data else 32768
+    resolved_max_tokens = max_tokens_override or shared_max_tokens
+    if resolved_max_tokens is not None:
+        max_tokens = int(resolved_max_tokens)
+    elif raw_max_tokens is not None:
+        max_tokens = int(raw_max_tokens)
     return LLMConfig(
         name=name,
-        model=data["model"],
-        base_url=data["base_url"],
-        api_key=data["api_key"],
-        temperature=float(data.get("temperature", 0.2)),
+        model=_env_override(f"{role_prefix}_MODEL") or shared_model or data["model"],
+        base_url=_env_override(f"{role_prefix}_BASE_URL") or shared_base_url or data["base_url"],
+        api_key=_env_override(f"{role_prefix}_API_KEY") or shared_api_key or data["api_key"],
+        temperature=float(_env_override(f"{role_prefix}_TEMPERATURE") or shared_temperature or data.get("temperature", 0.2)),
         max_tokens=max_tokens,
-        timeout_seconds=int(data.get("timeout_seconds", 180)),
+        timeout_seconds=int(_env_override(f"{role_prefix}_TIMEOUT_SECONDS") or shared_timeout or data.get("timeout_seconds", 180)),
     )
 
 
 def load_system_config(path: str | Path) -> SystemConfig:
     raw = read_json(Path(path))
+    runtime_raw = dict(raw.get("runtime", {}))
+    runtime_env_overrides = {
+        "max_router_candidates": _env_override("NLRL_RUNTIME_MAX_ROUTER_CANDIDATES"),
+        "skill_match_threshold": _env_override("NLRL_RUNTIME_SKILL_MATCH_THRESHOLD"),
+        "max_executor_steps": _env_override("NLRL_RUNTIME_MAX_EXECUTOR_STEPS"),
+        "max_actor_steps": _env_override("NLRL_RUNTIME_MAX_ACTOR_STEPS"),
+        "max_iterations_per_task": _env_override("NLRL_RUNTIME_MAX_ITERATIONS_PER_TASK"),
+        "skill_count_limit": _env_override("NLRL_RUNTIME_SKILL_COUNT_LIMIT"),
+        "python_executable": _env_override("NLRL_RUNTIME_PYTHON_EXECUTABLE"),
+        "shell_program": _env_override("NLRL_RUNTIME_SHELL_PROGRAM"),
+    }
+    for key, value in runtime_env_overrides.items():
+        if value is None:
+            continue
+        if key in {"skill_match_threshold"}:
+            runtime_raw[key] = float(value)
+        elif key in {
+            "max_router_candidates",
+            "max_executor_steps",
+            "max_actor_steps",
+            "max_iterations_per_task",
+            "skill_count_limit",
+        }:
+            runtime_raw[key] = int(value)
+        else:
+            runtime_raw[key] = value
     return SystemConfig(
         actor=_llm_from_dict("actor", raw["actor"]),
         critic=_llm_from_dict("critic", raw["critic"]),
         router=_llm_from_dict("router", raw["router"]),
         executor=_llm_from_dict("executor", raw["executor"]),
         paths=PathsConfig(**raw["paths"]),
-        runtime=RuntimeConfig(**raw.get("runtime", {})),
+        runtime=RuntimeConfig(**runtime_raw),
     )

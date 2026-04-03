@@ -49,6 +49,7 @@ class SkillCritic:
                 },
                 ensure_ascii=False,
                 indent=2,
+                default=str,
             ),
         )
         payload, llm_result = self.llm.chat_json(

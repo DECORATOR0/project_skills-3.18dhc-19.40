@@ -66,11 +66,46 @@ def load_skill_detail(header: SkillHeader) -> SkillDetail:
     return SkillDetail(header=header, body=body, resources=sorted(resources), full_text=full_text)
 
 
+def _normalize_allowed_tools(meta: dict[str, Any]) -> list[str]:
+    allowed_raw = meta.get("allowed-tools", "")
+    if isinstance(allowed_raw, list):
+        return [str(item).strip() for item in allowed_raw if str(item).strip()]
+    if isinstance(allowed_raw, str):
+        return [item for item in allowed_raw.split() if item]
+    return []
+
+
+def _render_skill_markdown(meta: dict[str, Any], body: str) -> str:
+    frontmatter = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).strip()
+    return f"---\n{frontmatter}\n---\n\n{body.lstrip()}"
+
+
+def _augment_skill_markdown(skill_md: str, files_to_write: dict[str, str]) -> str:
+    try:
+        meta, body = _split_frontmatter(skill_md)
+    except Exception:
+        return skill_md
+    allowed_tools = _normalize_allowed_tools(meta)
+    extra_tools: list[str] = []
+    if any(path.startswith("references/") for path in files_to_write):
+        extra_tools.append("read_file")
+    if any(path.startswith("scripts/") for path in files_to_write):
+        extra_tools.append("run_python_script")
+    for tool_name in extra_tools:
+        if tool_name not in allowed_tools:
+            allowed_tools.append(tool_name)
+    meta["allowed-tools"] = allowed_tools
+    return _render_skill_markdown(meta, body)
+
+
 def write_skill_bundle(skill_library_root: Path, skill_name: str, files_to_write: dict[str, str]) -> Path:
     skill_name = slugify(skill_name)
     skill_dir = skill_library_root / skill_name
     ensure_dir(skill_dir)
-    for relative_path, content in files_to_write.items():
+    normalized_files = dict(files_to_write)
+    if "SKILL.md" in normalized_files:
+        normalized_files["SKILL.md"] = _augment_skill_markdown(normalized_files["SKILL.md"], normalized_files)
+    for relative_path, content in normalized_files.items():
         target = safe_relative_path(skill_dir, relative_path)
         write_text(target, content)
     return skill_dir

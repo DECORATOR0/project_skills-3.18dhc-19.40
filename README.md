@@ -45,6 +45,14 @@ configs/
 docs/
   analysis/
     origin_dhc_skillpool_liuyouliang_analysis.md
+  runtime_reverse_skills/
+    README.md
+    earth-spectrum-thermal-retrieval.md
+    earth-spectrum-drought-stress.md
+    earth-product-timeseries.md
+    earth-product-derived-index-change.md
+    earth-product-raster-arithmetic.md
+    earth-rgb-perception-change.md
   agent_skill_definition.md
   training_data_format.md
 
@@ -98,6 +106,7 @@ runs/
 ## Additional Notes
 
 - Comparative note for `origin`, the current DHC branch, and `skill-pool`: `docs/analysis/origin_dhc_skillpool_liuyouliang_analysis.md`
+- Reverse-mapped runtime 6-skill schema inferred from `19.40` code: `docs/runtime_reverse_skills/README.md`
 
 ## LLM Roles
 

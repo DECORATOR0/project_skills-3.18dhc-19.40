@@ -3,23 +3,37 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .config import load_system_config
+from .config import clone_system_config, load_system_config
 from .data import convert_earth_bench_question_file
 from .evaluator_runner import SkillPolicyEvaluator
+from .skill_aggregator import AggregatedSkillLibraryBuilder
 from .skills import discover_skills, reset_experience_buffer, reset_skill_library
+from .task_buckets import build_task_set_manifest, export_task_set_manifest
+from .task_local_trainer import TaskLocalParallelTrainer
 from .trainer import SkillRLTrainer
+from .utils import read_text
 from .utils import ensure_dir, write_json
 
 
 def _task_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--task-ids", nargs="+", help="Normalized task ids or original question ids.")
+    parser.add_argument("--task-file", help="Optional newline-delimited file of normalized task ids or original question ids.")
     parser.add_argument("--count", type=int, help="Take the first N tasks from the dataset slice.")
     parser.add_argument("--start-index", type=int, default=0, help="Zero-based dataset offset before applying count.")
+
+
+def _resolve_task_ids(args) -> list[str] | None:
+    if getattr(args, "task_file", None):
+        return [line.strip() for line in read_text(Path(args.task_file)).splitlines() if line.strip()]
+    return args.task_ids
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Natural-language RL framework for agent skill training.")
     parser.add_argument("--config", required=True, help="Path to configs/system.json")
+    parser.add_argument("--skill-library-root", help="Optional override for the active skill library root.")
+    parser.add_argument("--experience-buffer-path", help="Optional override for the active NL-Experience Buffer path.")
+    parser.add_argument("--run-root", help="Optional override for the output run root.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     convert = sub.add_parser("convert-earth-bench", help="Convert benchmark/question.json into the RL dataset schema.")
@@ -28,6 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     inspect = sub.add_parser("inspect-skills", help="Inspect current generated skill headers.")
     inspect.add_argument("--output", help="Optional JSON output path")
+
+    sample = sub.add_parser("sample-task-set", help="Create a stratified 30-task training set and export concrete task-id files.")
+    sample.add_argument("--seed", type=int, default=20260403, help="Fixed random seed used inside the bucket sampler.")
+    sample.add_argument("--output-dir", help="Output directory for generated task-id files and manifest.")
 
     train = sub.add_parser("debug-single-task", help="Run the full loop on one task for debugging.")
     train.add_argument("--task-id", help="Normalized task id or original question id")
@@ -41,9 +59,19 @@ def build_parser() -> argparse.ArgumentParser:
     train_many.add_argument("--reset-skill-library", action="store_true", help="Remove all generated skills before the run.")
     train_many.add_argument("--reset-experience-buffer", action="store_true", help="Clear the NL-Experience Buffer before the run.")
 
+    train_local = sub.add_parser("train-task-local-parallel", help="Train each selected task in its own local single-skill workspace.")
+    _task_selection_args(train_local)
+    train_local.add_argument("--concurrency", type=int, default=2, help="Number of task-local workers to run concurrently.")
+    train_local.add_argument("--run-name", help="Optional run folder name")
+
     evaluate = sub.add_parser("evaluate-tasks", help="Evaluate the current skill library without further training.")
     _task_selection_args(evaluate)
     evaluate.add_argument("--run-name", help="Optional run folder name")
+    evaluate.add_argument("--concurrency", type=int, default=1, help="Number of evaluation workers to run concurrently.")
+
+    aggregate = sub.add_parser("aggregate-task-local-skills", help="Aggregate retained task-local skills into a 6-skill library.")
+    aggregate.add_argument("--input-run-dir", required=True, help="Task-local parallel training run directory.")
+    aggregate.add_argument("--output-root", help="Optional destination skill library root.")
     return parser
 
 
@@ -51,6 +79,15 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     config = load_system_config(args.config)
+    path_overrides = {}
+    if args.skill_library_root:
+        path_overrides["skill_library_root"] = args.skill_library_root
+    if args.experience_buffer_path:
+        path_overrides["experience_buffer_path"] = args.experience_buffer_path
+    if args.run_root:
+        path_overrides["run_root"] = args.run_root
+    if path_overrides:
+        config = clone_system_config(config, paths=path_overrides)
 
     if args.command == "convert-earth-bench":
         path = convert_earth_bench_question_file(Path(args.src), Path(args.dst))
@@ -63,6 +100,15 @@ def main() -> None:
             write_json(Path(args.output), headers)
         else:
             print(headers)
+        return
+
+    if args.command == "sample-task-set":
+        from .data import load_converted_dataset
+
+        output_dir = Path(args.output_dir) if args.output_dir else config.workspace_root / "data" / "task_sets" / f"task_local_parallel_seed_{args.seed}"
+        manifest = build_task_set_manifest(load_converted_dataset(config.converted_dataset_path), seed=args.seed)
+        export_task_set_manifest(output_dir, manifest)
+        print(output_dir)
         return
 
     if args.command == "debug-single-task":
@@ -82,9 +128,21 @@ def main() -> None:
             reset_experience_buffer(config.experience_buffer_path)
         trainer = SkillRLTrainer(config)
         run_dir = trainer.train_tasks(
-            task_ids=args.task_ids,
+            task_ids=_resolve_task_ids(args),
             count=args.count,
             start_index=args.start_index,
+            run_name=args.run_name,
+        )
+        print(run_dir)
+        return
+
+    if args.command == "train-task-local-parallel":
+        trainer = TaskLocalParallelTrainer(config)
+        run_dir = trainer.train_tasks(
+            task_ids=_resolve_task_ids(args),
+            count=args.count,
+            start_index=args.start_index,
+            concurrency=args.concurrency,
             run_name=args.run_name,
         )
         print(run_dir)
@@ -93,12 +151,22 @@ def main() -> None:
     if args.command == "evaluate-tasks":
         evaluator = SkillPolicyEvaluator(config)
         run_dir = evaluator.evaluate_tasks(
-            task_ids=args.task_ids,
+            task_ids=_resolve_task_ids(args),
             count=args.count,
             start_index=args.start_index,
             run_name=args.run_name,
+            concurrency=args.concurrency,
         )
         print(run_dir)
+        return
+
+    if args.command == "aggregate-task-local-skills":
+        builder = AggregatedSkillLibraryBuilder(config)
+        output_root = builder.build_from_run(
+            Path(args.input_run_dir),
+            output_root=Path(args.output_root) if args.output_root else None,
+        )
+        print(output_root)
         return
 
     raise SystemExit(f"Unsupported command: {args.command}")
