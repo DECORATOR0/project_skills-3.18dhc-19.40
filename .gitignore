@@ -5,6 +5,7 @@ runs/
 runtime_state/
 
 benchmark/out/
+out/
 
 # skill_eval runtime artifacts
 agent/skill_eval/direct_executor*.log
