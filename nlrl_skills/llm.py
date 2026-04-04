@@ -45,6 +45,7 @@ class OpenAICompatibleLLM:
         self.client = self._build_client()
         self.max_retries = int(os.environ.get("NLRL_LLM_MAX_RETRIES", "6"))
         self.retry_delay_seconds = float(os.environ.get("NLRL_LLM_RETRY_DELAY_SECONDS", "6"))
+        self.json_repair_attempts = int(os.environ.get("NLRL_LLM_JSON_REPAIR_ATTEMPTS", "2"))
         concurrency_raw = os.environ.get("NLRL_LLM_MAX_CONCURRENT_REQUESTS", "").strip()
         self.request_semaphore = _shared_request_semaphore(int(concurrency_raw)) if concurrency_raw else None
 
@@ -126,6 +127,14 @@ class OpenAICompatibleLLM:
     def _supports_enable_thinking_flag(self) -> bool:
         return "qwen" in self.config.model.lower()
 
+    def _apply_model_limits(self, *, max_tokens: int | None) -> int | None:
+        if max_tokens is None:
+            return None
+        model_name = self.config.model.lower()
+        if "qwen3-8b" in model_name and max_tokens > 8192:
+            return 8192
+        return max_tokens
+
     def _build_payload(
         self,
         messages: list[LLMMessage],
@@ -141,6 +150,7 @@ class OpenAICompatibleLLM:
         if self._supports_enable_thinking_flag() and self.config.enable_thinking is not None:
             payload["enable_thinking"] = self.config.enable_thinking
         resolved_max_tokens = self.config.max_tokens if max_tokens is None else max_tokens
+        resolved_max_tokens = self._apply_model_limits(max_tokens=resolved_max_tokens)
         if resolved_max_tokens is not None:
             payload["max_tokens"] = resolved_max_tokens
         return payload
@@ -278,6 +288,18 @@ class OpenAICompatibleLLM:
         text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text or "").strip()
         return LLMCallResult(text=text, raw_response=raw_response, request_payload=payload)
 
+    def _json_repair_prompt(self, error: Exception | str) -> str:
+        return (
+            "Your previous reply could not be parsed as a single valid JSON object.\n"
+            f"Parser error: {error}\n"
+            "Reply again with exactly one valid JSON object and nothing else.\n"
+            "Requirements:\n"
+            "- Keep the same intended decision/content unless the parser issue itself forces a minimal correction.\n"
+            "- Do not output markdown fences or any prose before/after the JSON.\n"
+            "- Do not use placeholders, Python expressions, string concatenation, or pseudo-code inside JSON.\n"
+            "- Materialize every list/object/value as concrete JSON.\n"
+        )
+
     def chat_json(
         self,
         messages: list[LLMMessage],
@@ -285,8 +307,28 @@ class OpenAICompatibleLLM:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> tuple[dict[str, Any], LLMCallResult]:
-        result = self.chat(messages, temperature=temperature, max_tokens=max_tokens)
-        return extract_json_object(result.text), result
+        conversation = list(messages)
+        last_error: Exception | None = None
+
+        for repair_attempt in range(self.json_repair_attempts + 1):
+            result = self.chat(conversation, temperature=temperature, max_tokens=max_tokens)
+            try:
+                payload = extract_json_object(result.text)
+                if repair_attempt and isinstance(result.raw_response, dict):
+                    result.raw_response["json_repair_attempts"] = repair_attempt
+                    result.raw_response["json_repair_last_error"] = "" if last_error is None else str(last_error)
+                return payload, result
+            except Exception as exc:
+                last_error = exc
+                if repair_attempt >= self.json_repair_attempts:
+                    raise
+                conversation = [
+                    *conversation,
+                    LLMMessage(role="assistant", content=result.text),
+                    LLMMessage(role="user", content=self._json_repair_prompt(exc)),
+                ]
+
+        raise RuntimeError("JSON repair loop exited unexpectedly.")
 
 
 def log_llm_call(log_dir: Path, role_name: str, result: LLMCallResult) -> None:

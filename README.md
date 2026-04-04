@@ -119,10 +119,10 @@ Configured in `configs/system.json`.
   - model: `gpt-5.4`
   - base url: `http://35.220.164.252:3888/v1`
 - `router`
-  - model: `gpt-5.4`
+  - model: `qwen3-8b`
   - base url: `http://35.220.164.252:3888/v1`
 - `executor`
-  - model: `Qwen/Qwen3-8B`
+  - model: `qwen3-8b`
   - base url: `http://35.220.164.252:3888/v1`
 
 All four roles are configured independently so they can be swapped later.
@@ -130,7 +130,8 @@ All four roles are configured independently so they can be swapped later.
 ### `max_tokens` rule
 - `actor` and `critic` do not send a `max_tokens` field.
 - `router` sends `max_tokens` only if it is explicitly set in `configs/system.json`.
-- `executor` sends `max_tokens` only if it is explicitly set in `configs/system.json`; the current config sets it to `32768`.
+- `executor` sends `max_tokens` only if it is explicitly set in `configs/system.json`; the current config sets it to `8192`.
+- The current `qwen3-8b` endpoint hard-caps `max_tokens` at `8192`; larger values are rejected server-side, so longer contexts are handled via prompt-size controls instead.
 
 ### Retry policy
 Every LLM call retries up to 5 times with a 6-second interval for transient request/network failures, including common status-code failures such as `400`, `429`, `500`, and `502`.

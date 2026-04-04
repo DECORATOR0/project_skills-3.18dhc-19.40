@@ -26,7 +26,12 @@ class SkillEnvironment:
             shell_program=config.runtime.shell_program,
         )
         self.toolbox = Toolbox(tool_context)
-        self.executor_agent = JSONToolAgent(config.executor, config.prompt_root, self.toolbox)
+        self.executor_agent = JSONToolAgent(
+            config.executor,
+            config.prompt_root,
+            self.toolbox,
+            max_context_chars=config.runtime.max_context_chars,
+        )
 
     def _pick_active_skill(self, headers: list[SkillHeader], router_result: RouterResult) -> SkillDetail | None:
         if not router_result.selected_skill:

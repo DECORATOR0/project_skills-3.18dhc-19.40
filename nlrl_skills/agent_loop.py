@@ -8,14 +8,94 @@ from .llm import OpenAICompatibleLLM, log_llm_call
 from .prompting import load_prompt
 from .schemas import LLMMessage, ToolCallRecord
 from .tools import Toolbox
-from .utils import extract_json_object
+
+_TRUNCATION_MARKER = "\n\n[truncated]\n"
+_OLDER_MESSAGE_LIMIT = 1600
+_MIN_MESSAGE_LIMIT = 600
+_RECENT_TOOL_RESULTS_TO_KEEP = 3
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    if limit <= 0 or len(text) <= limit:
+        return text
+    if limit <= len(_TRUNCATION_MARKER) + 32:
+        return text[:limit]
+    return text[: limit - len(_TRUNCATION_MARKER)] + _TRUNCATION_MARKER
+
+
+def _tool_result_indexes(messages: list[LLMMessage]) -> list[int]:
+    return [
+        idx
+        for idx, message in enumerate(messages)
+        if idx >= 2 and message.role == "user" and message.content.startswith("Tool result for step ")
+    ]
+
+
+def _fit_messages_to_budget(messages: list[LLMMessage], max_chars: int) -> list[LLMMessage]:
+    if max_chars <= 0 or not messages:
+        return messages
+    total_chars = sum(len(message.content) for message in messages)
+    if total_chars <= max_chars:
+        return messages
+    if len(messages) <= 2:
+        return messages
+
+    preserved = messages[:2]
+    preserved_chars = sum(len(message.content) for message in preserved)
+    if preserved_chars >= max_chars:
+        remaining = max(max_chars - len(messages[0].content), 0)
+        return [
+            messages[0],
+            LLMMessage(role=messages[1].role, content=_truncate_text(messages[1].content, remaining)),
+        ]
+
+    budget = max_chars - preserved_chars
+    tail: list[LLMMessage] = []
+    used = 0
+    for message in reversed(messages[2:]):
+        length = len(message.content)
+        if used + length > budget:
+            continue
+        tail.append(message)
+        used += length
+    tail.reverse()
+    return preserved + tail
+
+
+def _prepare_messages_for_call(messages: list[LLMMessage], max_context_chars: int) -> list[LLMMessage]:
+    if max_context_chars <= 0:
+        return messages
+    if len(messages) <= 2:
+        return _fit_messages_to_budget(messages, max_context_chars)
+
+    recent_tool_results = set(_tool_result_indexes(messages)[-_RECENT_TOOL_RESULTS_TO_KEEP:])
+    prepared: list[LLMMessage] = []
+    for idx, message in enumerate(messages):
+        content = message.content
+        if idx >= 2 and idx not in recent_tool_results:
+            content = _truncate_text(content, _OLDER_MESSAGE_LIMIT)
+        prepared.append(LLMMessage(role=message.role, content=content))
+    prepared = _fit_messages_to_budget(prepared, max_context_chars)
+
+    total_chars = sum(len(message.content) for message in prepared)
+    if total_chars <= max_context_chars:
+        return prepared
+
+    tightened: list[LLMMessage] = []
+    for idx, message in enumerate(prepared):
+        content = message.content
+        if idx >= 2:
+            content = _truncate_text(content, _MIN_MESSAGE_LIMIT)
+        tightened.append(LLMMessage(role=message.role, content=content))
+    return _fit_messages_to_budget(tightened, max_context_chars)
 
 
 class JSONToolAgent:
-    def __init__(self, llm_config: LLMConfig, prompt_root: Path, toolbox: Toolbox):
+    def __init__(self, llm_config: LLMConfig, prompt_root: Path, toolbox: Toolbox, *, max_context_chars: int = 16384):
         self.llm = OpenAICompatibleLLM(llm_config)
         self.prompt_root = prompt_root
         self.toolbox = toolbox
+        self.max_context_chars = max_context_chars
 
     def run(
         self,
@@ -46,10 +126,11 @@ class JSONToolAgent:
             "summary": "",
         }
         for step_idx in range(1, max_steps + 1):
-            result = self.llm.chat(messages)
+            payload, result = self.llm.chat_json(
+                _prepare_messages_for_call(messages, self.max_context_chars)
+            )
             log_llm_call(log_dir / f"{role_name}_steps", f"{role_name}_step_{step_idx}", result)
             raw_outputs.append(result.text)
-            payload = extract_json_object(result.text)
             messages.append(LLMMessage(role="assistant", content=result.text))
             action = str(payload.get("action", "")).strip().lower()
             if action == "final":

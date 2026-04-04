@@ -57,31 +57,162 @@ def slugify(text: str) -> str:
     return text.strip("-") or "skill"
 
 
-def extract_json_object(text: str) -> dict[str, Any]:
-    text = text.strip()
-    if not text:
-        raise ValueError("Empty model response; expected JSON object.")
-    text = re.sub(r"(?is)<think>.*?</think>\s*", "", text).strip()
-    fence_match = re.search(r"(?is)^```(?:json)?\s*(.*?)\s*```$", text)
+def _strip_model_json_wrappers(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(r"(?is)<think>.*?</think>\s*", "", cleaned).strip()
+    fence_match = re.search(r"(?is)^```(?:json)?\s*(.*?)\s*```$", cleaned)
     if fence_match:
-        text = fence_match.group(1).strip()
-    try:
-        data = json.loads(text)
-        if not isinstance(data, dict):
-            raise ValueError("Top-level JSON must be an object.")
-        return data
-    except json.JSONDecodeError:
-        pass
+        cleaned = fence_match.group(1).strip()
+    return cleaned
 
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError(f"Unable to locate JSON object in response: {text[:400]}")
-    candidate = text[start : end + 1]
-    data = json.loads(candidate)
+
+def _escape_json_control_chars(text: str) -> str:
+    escaped: list[str] = []
+    in_string = False
+    pending_escape = False
+    replacement_map = {
+        "\b": "\\b",
+        "\f": "\\f",
+        "\n": "\\n",
+        "\r": "\\r",
+        "\t": "\\t",
+    }
+
+    for ch in text:
+        if in_string:
+            if pending_escape:
+                escaped.append(ch)
+                pending_escape = False
+                continue
+            if ch == "\\":
+                escaped.append(ch)
+                pending_escape = True
+                continue
+            if ch == '"':
+                escaped.append(ch)
+                in_string = False
+                continue
+            if ord(ch) < 0x20:
+                escaped.append(replacement_map.get(ch, f"\\u{ord(ch):04x}"))
+                continue
+            escaped.append(ch)
+            continue
+
+        escaped.append(ch)
+        if ch == '"':
+            in_string = True
+
+    return "".join(escaped)
+
+
+def _iter_json_object_candidates(text: str):
+    for start, ch in enumerate(text):
+        if ch != "{":
+            continue
+        depth = 0
+        in_string = False
+        pending_escape = False
+        for end in range(start, len(text)):
+            current = text[end]
+            if in_string:
+                if pending_escape:
+                    pending_escape = False
+                    continue
+                if current == "\\":
+                    pending_escape = True
+                    continue
+                if current == '"':
+                    in_string = False
+                continue
+            if current == '"':
+                in_string = True
+                continue
+            if current == "{":
+                depth += 1
+                continue
+            if current == "}":
+                depth -= 1
+                if depth == 0:
+                    yield start, text[start : end + 1]
+                    break
+
+
+def _load_json_dict(text: str) -> dict[str, Any]:
+    data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("Top-level JSON must be an object.")
     return data
+
+
+_PREFERRED_TOP_LEVEL_JSON_KEYS = {
+    "action",
+    "tool_name",
+    "arguments",
+    "final_answer",
+    "choice_label",
+    "summary",
+    "selected_skill",
+    "has_applicable_skill",
+    "scores",
+    "trajectory",
+    "notes",
+    "natural_language_reward",
+    "recommended_action_type",
+    "create_new_skill",
+    "merge_candidates",
+    "target_skill",
+    "reward_dimensions",
+    "experience_note",
+    "action_type",
+    "target_skill_name",
+    "merged_from",
+    "files_to_write",
+    "files_to_delete",
+    "experience_entry",
+}
+
+
+def extract_json_object(text: str) -> dict[str, Any]:
+    cleaned = _strip_model_json_wrappers(text)
+    if not cleaned:
+        raise ValueError("Empty model response; expected JSON object.")
+
+    attempts = [cleaned]
+    sanitized = _escape_json_control_chars(cleaned)
+    if sanitized != cleaned:
+        attempts.append(sanitized)
+
+    last_error: Exception | None = None
+    for candidate in attempts:
+        try:
+            return _load_json_dict(candidate)
+        except (json.JSONDecodeError, ValueError) as exc:
+            last_error = exc
+
+    valid_candidates: list[tuple[int, int, int, dict[str, Any]]] = []
+    seen_candidates: set[tuple[int, str]] = set()
+    for source in attempts:
+        for start, candidate in _iter_json_object_candidates(source):
+            marker = (start, candidate)
+            if marker in seen_candidates:
+                continue
+            seen_candidates.add(marker)
+            for variant in (candidate, _escape_json_control_chars(candidate)):
+                try:
+                    payload = _load_json_dict(variant)
+                    preferred_key_hits = len(set(payload) & _PREFERRED_TOP_LEVEL_JSON_KEYS)
+                    if preferred_key_hits or start == 0:
+                        valid_candidates.append((preferred_key_hits, -start, len(candidate), payload))
+                        break
+                except (json.JSONDecodeError, ValueError) as exc:
+                    last_error = exc
+    if valid_candidates:
+        _, _, _, payload = max(valid_candidates)
+        return payload
+
+    if "{" not in cleaned or "}" not in cleaned:
+        raise ValueError(f"Unable to locate JSON object in response: {cleaned[:400]}")
+    raise ValueError(str(last_error) if last_error is not None else "Unable to parse model response as a JSON object.")
 
 
 def safe_relative_path(base_dir: Path, user_path: str) -> Path:

@@ -38,4 +38,6 @@ Additional constraints:
 6. Files under `scripts/`, `references/`, and `assets/` are resources, not tool names.
 7. To execute a skill-bundled Python script, always call `run_python_script` with `"script_path": "scripts/your_script.py"`.
 8. If a helper script reads JSON from stdin, pass the payload with `stdin_json` instead of packing it into positional args.
-9. To inspect a bundled markdown/text reference, always call `read_file` with the relative file path such as `"references/REFERENCE.md"`.
+9. When a tool argument needs structured data, emit concrete JSON values only. Never output Python code, pseudo-code, f-strings, `json.dumps(...)`, `",".join(...)`, or placeholders like `${{file_list}}` inside the JSON.
+10. If a helper script expects one JSON blob as a positional arg, pass a concrete JSON string or a concrete JSON object/array that can be serialized directly; do not hand-write code that would generate it later.
+11. To inspect a bundled markdown/text reference, always call `read_file` with the relative file path such as `"references/REFERENCE.md"`.

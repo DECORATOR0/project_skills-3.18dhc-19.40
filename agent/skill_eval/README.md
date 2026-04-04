@@ -460,14 +460,6 @@ conda env create -f environment.skill-eval.yml
 conda activate earth-bench-skill-eval
 ```
 
-If network access is unstable, use the proxy first:
-
-```powershell
-$env:HTTP_PROXY="http://127.0.0.1:7890"
-$env:HTTPS_PROXY="http://127.0.0.1:7890"
-conda env create -f environment.skill-eval.yml
-```
-
 If the environment already exists:
 
 ```powershell

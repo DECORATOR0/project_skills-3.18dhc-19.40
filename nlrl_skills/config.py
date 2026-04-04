@@ -41,6 +41,7 @@ class RuntimeConfig:
     max_actor_steps: int = 8
     max_iterations_per_task: int = 10
     skill_count_limit: int = 6
+    max_context_chars: int = 16384
     python_executable: str = "python"
     shell_program: str = "powershell"
 
@@ -130,7 +131,7 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
 
     raw_max_tokens = data.get("max_tokens")
     if name == "executor" and raw_max_tokens is None:
-        raw_max_tokens = 32768
+        raw_max_tokens = 8192
     max_tokens_override = _env_override(f"{role_prefix}_MAX_TOKENS")
     max_tokens: int | None = None
     resolved_max_tokens = max_tokens_override or shared_max_tokens
@@ -173,6 +174,7 @@ def load_system_config(path: str | Path) -> SystemConfig:
         "max_actor_steps": _env_override("NLRL_RUNTIME_MAX_ACTOR_STEPS"),
         "max_iterations_per_task": _env_override("NLRL_RUNTIME_MAX_ITERATIONS_PER_TASK"),
         "skill_count_limit": _env_override("NLRL_RUNTIME_SKILL_COUNT_LIMIT"),
+        "max_context_chars": _env_override("NLRL_RUNTIME_MAX_CONTEXT_CHARS"),
         "python_executable": _env_override("NLRL_RUNTIME_PYTHON_EXECUTABLE"),
         "shell_program": _env_override("NLRL_RUNTIME_SHELL_PROGRAM"),
     }
@@ -187,6 +189,7 @@ def load_system_config(path: str | Path) -> SystemConfig:
             "max_actor_steps",
             "max_iterations_per_task",
             "skill_count_limit",
+            "max_context_chars",
         }:
             runtime_raw[key] = int(value)
         else:

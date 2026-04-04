@@ -1,26 +1,26 @@
 {
   "actor": {
-    "model": "qwen3-8b",
+    "model": "gpt-5.4",
     "base_url": "http://35.220.164.252:3888/v1",
-    "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
     "temperature": 0.3,
     "timeout_seconds": 180,
     "enable_thinking": true,
-    "stream": true
+    "stream": false
   },
   "critic": {
-    "model": "qwen3-8b",
+    "model": "gpt-5.4",
     "base_url": "http://35.220.164.252:3888/v1",
-    "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
     "temperature": 0.3,
     "timeout_seconds": 180,
     "enable_thinking": true,
-    "stream": true
+    "stream": false
   },
   "router": {
     "model": "qwen3-8b",
     "base_url": "http://35.220.164.252:3888/v1",
-    "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
     "temperature": 0.1,
     "timeout_seconds": 180,
     "enable_thinking": true,
@@ -29,7 +29,7 @@
   "executor": {
     "model": "qwen3-8b",
     "base_url": "http://35.220.164.252:3888/v1",
-    "api_key": "sk-fJAaw6TWC8JjH7mzHDqY78lcpr6VdvZhkXVD6isc3oLi7fGZ",
+    "api_key": "sk-JhritIDG3G8QxS6pPJ1kIfqxWorzSAZgHgkLz4EA0RgFl9lQ",
     "temperature": 0.1,
     "max_tokens": 8192,
     "timeout_seconds": 180,
@@ -53,6 +53,7 @@
     "max_actor_steps": 8,
     "max_iterations_per_task": 10,
     "skill_count_limit": 6,
+    "max_context_chars": 16384,
     "python_executable": "/data/xsy/miniconda3/envs/earth-bench-skill-eval/bin/python",
     "shell_program": "/bin/bash"
   }

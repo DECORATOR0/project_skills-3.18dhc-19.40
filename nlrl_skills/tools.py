@@ -504,7 +504,10 @@ class Toolbox:
         if stdin_json is not None and stdin_text is not None:
             raise ValueError("Provide at most one of stdin_json or stdin_text.")
 
-        normalized_args = [str(arg) for arg in (args or [])]
+        normalized_args = [
+            json.dumps(arg, ensure_ascii=False) if isinstance(arg, (dict, list, tuple)) else str(arg)
+            for arg in (args or [])
+        ]
         stdin_payload = ""
         script_source = read_text(target)
         expects_json_stdin = "json.load(sys.stdin)" in script_source or "json.loads(sys.stdin.read(" in script_source
