@@ -14,6 +14,7 @@ class LLMConfig:
     model: str
     base_url: str
     api_key: str
+    api_mode: str = "chat_completions"
     temperature: float = 0.2
     max_tokens: int | None = None
     timeout_seconds: int = 180
@@ -123,6 +124,7 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
     shared_model = _env_override("NLRL_LLM_MODEL")
     shared_base_url = _env_override("NLRL_LLM_BASE_URL")
     shared_api_key = _env_override("NLRL_LLM_API_KEY")
+    shared_api_mode = _env_override("NLRL_LLM_API_MODE")
     shared_temperature = _env_override("NLRL_LLM_TEMPERATURE")
     shared_timeout = _env_override("NLRL_LLM_TIMEOUT_SECONDS")
     shared_max_tokens = _env_override("NLRL_LLM_MAX_TOKENS")
@@ -156,6 +158,7 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
         model=_env_override(f"{role_prefix}_MODEL") or shared_model or data["model"],
         base_url=_env_override(f"{role_prefix}_BASE_URL") or shared_base_url or data["base_url"],
         api_key=_env_override(f"{role_prefix}_API_KEY") or shared_api_key or data["api_key"],
+        api_mode=_env_override(f"{role_prefix}_API_MODE") or shared_api_mode or str(data.get("api_mode", "chat_completions")),
         temperature=float(_env_override(f"{role_prefix}_TEMPERATURE") or shared_temperature or data.get("temperature", 0.2)),
         max_tokens=max_tokens,
         timeout_seconds=int(_env_override(f"{role_prefix}_TIMEOUT_SECONDS") or shared_timeout or data.get("timeout_seconds", 180)),

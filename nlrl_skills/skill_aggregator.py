@@ -426,14 +426,23 @@ def _assert_no_consumer_leakage(text: str, *, markers: list[str]) -> None:
 def _aggregator_llm_config(config: SystemConfig) -> LLMConfig:
     actor = config.actor
     max_tokens_raw = os.environ.get("NLRL_AGGREGATOR_MAX_TOKENS", "").strip()
+    enable_thinking_raw = os.environ.get("NLRL_AGGREGATOR_ENABLE_THINKING", "").strip()
+    stream_raw = os.environ.get("NLRL_AGGREGATOR_STREAM", "").strip()
     return LLMConfig(
         name="aggregator",
         model=os.environ.get("NLRL_AGGREGATOR_MODEL", "").strip() or actor.model,
         base_url=os.environ.get("NLRL_AGGREGATOR_BASE_URL", "").strip() or actor.base_url,
         api_key=os.environ.get("NLRL_AGGREGATOR_API_KEY", "").strip() or actor.api_key,
+        api_mode=os.environ.get("NLRL_AGGREGATOR_API_MODE", "").strip() or actor.api_mode,
         temperature=float(os.environ.get("NLRL_AGGREGATOR_TEMPERATURE", "").strip() or actor.temperature),
-        max_tokens=int(max_tokens_raw) if max_tokens_raw else (actor.max_tokens or 8192),
+        max_tokens=int(max_tokens_raw) if max_tokens_raw else actor.max_tokens,
         timeout_seconds=int(os.environ.get("NLRL_AGGREGATOR_TIMEOUT_SECONDS", "").strip() or actor.timeout_seconds),
+        enable_thinking=(
+            enable_thinking_raw.lower() in {"1", "true", "yes", "on"}
+            if enable_thinking_raw
+            else actor.enable_thinking
+        ),
+        stream=stream_raw.lower() in {"1", "true", "yes", "on"} if stream_raw else actor.stream,
     )
 
 

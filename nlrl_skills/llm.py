@@ -49,6 +49,9 @@ class OpenAICompatibleLLM:
         concurrency_raw = os.environ.get("NLRL_LLM_MAX_CONCURRENT_REQUESTS", "").strip()
         self.request_semaphore = _shared_request_semaphore(int(concurrency_raw)) if concurrency_raw else None
 
+    def _uses_responses_sse(self) -> bool:
+        return self.config.api_mode.strip().lower() == "responses_sse"
+
     def _build_client(self) -> httpx.Client:
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
@@ -121,11 +124,20 @@ class OpenAICompatibleLLM:
             "server disconnected without sending a response",
             "remoteprotocolerror",
             "disconnected",
+            "empty content",
         )
         return any(marker in message for marker in retry_markers)
 
     def _supports_enable_thinking_flag(self) -> bool:
         return "qwen" in self.config.model.lower()
+
+    def _responses_endpoint(self) -> str:
+        endpoint = self.config.base_url.rstrip("/")
+        if endpoint.endswith("/responses"):
+            return endpoint
+        if endpoint.endswith("/v1"):
+            return endpoint + "/responses"
+        return endpoint
 
     def _apply_model_limits(self, *, max_tokens: int | None) -> int | None:
         if max_tokens is None:
@@ -154,6 +166,116 @@ class OpenAICompatibleLLM:
         if resolved_max_tokens is not None:
             payload["max_tokens"] = resolved_max_tokens
         return payload
+
+    def _build_responses_payload(self, messages: list[LLMMessage]) -> dict[str, Any]:
+        instructions_parts = [m.content for m in messages if m.role == "system" and m.content.strip()]
+        conversation_input = [
+            {
+                "role": m.role,
+                "content": [{"type": "input_text", "text": m.content}],
+            }
+            for m in messages
+            if m.role != "system"
+        ]
+        if not conversation_input:
+            conversation_input = [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "Follow the provided instructions."}],
+                }
+            ]
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "stream": True,
+            "input": conversation_input,
+        }
+        if instructions_parts:
+            payload["instructions"] = "\n\n".join(instructions_parts)
+        return payload
+
+    def _extract_responses_output_text(self, payload: dict[str, Any]) -> str:
+        response = payload.get("response", {})
+        output_text = response.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+        for item in response.get("output", []):
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if content.get("type") == "output_text":
+                    text = str(content.get("text", "")).strip()
+                    if text:
+                        return text
+        raise RuntimeError("No output_text found in responses SSE response.")
+
+    def _extract_responses_error(self, payload: dict[str, Any]) -> str:
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                return message
+        response = payload.get("response", {})
+        response_error = response.get("error")
+        if isinstance(response_error, dict):
+            message = response_error.get("message")
+            if isinstance(message, str) and message.strip():
+                return message
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _parse_responses_sse_text(self, raw_text: str, request_payload: dict[str, Any]) -> LLMCallResult:
+        last_payload: dict[str, Any] | None = None
+        completed_payload: dict[str, Any] | None = None
+        for block in raw_text.split("\n\n"):
+            lines = block.strip().splitlines()
+            if not lines:
+                continue
+            data_lines = [line[6:] for line in lines if line.startswith("data: ")]
+            if not data_lines:
+                continue
+            try:
+                payload = json.loads("\n".join(data_lines))
+            except json.JSONDecodeError:
+                continue
+            last_payload = payload
+            payload_type = str(payload.get("type", ""))
+            if payload_type == "response.completed":
+                completed_payload = payload
+                break
+            if payload_type in {"error", "response.failed"}:
+                raise RuntimeError(self._extract_responses_error(payload))
+        if completed_payload is None:
+            error_message = "No response.completed event found in responses SSE output."
+            if last_payload is not None:
+                error_message += f" Last payload: {self._extract_responses_error(last_payload)}"
+            raise RuntimeError(error_message)
+        text = self._extract_responses_output_text(completed_payload)
+        text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text or "").strip()
+        return LLMCallResult(text=text, raw_response=completed_payload, request_payload=request_payload)
+
+    def _responses_chat(self, payload: dict[str, Any]) -> LLMCallResult:
+        with self._request_slot():
+            for attempt in range(1, self.max_retries + 1):
+                try:
+                    with httpx.Client(trust_env=False, timeout=float(self.config.timeout_seconds)) as client:
+                        response = client.post(
+                            self._responses_endpoint(),
+                            headers={
+                                "Authorization": f"Bearer {self.config.api_key}",
+                                "Accept": "text/event-stream",
+                                "Content-Type": "application/json",
+                            },
+                            json=payload,
+                        )
+                        response.raise_for_status()
+                    return self._parse_responses_sse_text(response.text, payload)
+                except Exception as exc:  # pragma: no cover - network dependent
+                    if attempt >= self.max_retries or not self._should_retry(exc):
+                        raise
+                    self._rebuild_client()
+                    backoff = self.retry_delay_seconds * attempt
+                    jitter = random.uniform(0, max(0.5, self.retry_delay_seconds / 2))
+                    time.sleep(backoff + jitter)
+        raise RuntimeError("Responses SSE LLM call exhausted retries without returning a response.")
 
     def _extract_delta_text(self, chunk: dict[str, Any]) -> str:
         choices = chunk.get("choices", [])
@@ -252,6 +374,9 @@ class OpenAICompatibleLLM:
         raise RuntimeError("Streaming LLM call exhausted retries without returning a response.")
 
     def chat(self, messages: list[LLMMessage], *, temperature: float | None = None, max_tokens: int | None = None) -> LLMCallResult:
+        if self._uses_responses_sse():
+            payload = self._build_responses_payload(messages)
+            return self._responses_chat(payload)
         payload = self._build_payload(messages, temperature=temperature, max_tokens=max_tokens)
         if self.config.stream:
             return self._chat_stream(payload)

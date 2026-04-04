@@ -1,0 +1,63 @@
+{
+  "actor": {
+    "model": "Qwen3-8B-local",
+    "base_url": "http://127.0.0.1:8102/v1",
+    "api_key": "local-vllm",
+    "temperature": 0.3,
+    "max_tokens": 2048,
+    "timeout_seconds": 300,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "critic": {
+    "model": "Qwen3-8B-local",
+    "base_url": "http://127.0.0.1:8102/v1",
+    "api_key": "local-vllm",
+    "temperature": 0.3,
+    "max_tokens": 2048,
+    "timeout_seconds": 300,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "router": {
+    "model": "Qwen3-8B-local",
+    "base_url": "http://127.0.0.1:8102/v1",
+    "api_key": "local-vllm",
+    "temperature": 0.1,
+    "max_tokens": 2048,
+    "timeout_seconds": 300,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "executor": {
+    "model": "Qwen3-8B-local",
+    "base_url": "http://127.0.0.1:8102/v1",
+    "api_key": "local-vllm",
+    "temperature": 0.1,
+    "max_tokens": 4096,
+    "timeout_seconds": 300,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "paths": {
+    "workspace_root": "/data/xsy/project_skills-3.18dhc-19.40",
+    "prompt_root": "/data/xsy/project_skills-3.18dhc-19.40/prompts",
+    "run_root": "/data/xsy/project_skills-3.18dhc-19.40/runs_gpu2",
+    "skill_library_root": "/data/xsy/project_skills-3.18dhc-19.40/skill_library",
+    "experience_buffer_path": "/data/xsy/project_skills-3.18dhc-19.40/runtime_state/experience_buffer.jsonl",
+    "dataset_path": "/data/xsy/project_skills-3.18dhc-19.40/benchmark/question.json",
+    "converted_dataset_path": "/data/xsy/project_skills-3.18dhc-19.40/data/converted/earth_bench_skill_rl/question.json",
+    "docs_root": "/data/xsy/project_skills-3.18dhc-19.40/docs"
+  },
+  "runtime": {
+    "max_router_candidates": 64,
+    "skill_match_threshold": 80.0,
+    "max_executor_steps": 20,
+    "max_actor_steps": 8,
+    "max_iterations_per_task": 10,
+    "skill_count_limit": 6,
+    "max_context_chars": 48000,
+    "python_executable": "/data/xsy/miniconda3/envs/earth-bench-skill-eval/bin/python",
+    "shell_program": "/bin/bash"
+  }
+}

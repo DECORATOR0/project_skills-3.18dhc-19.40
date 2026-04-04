@@ -93,6 +93,13 @@ class EOToolRuntime:
     def _annotation_to_schema(self, annotation: Any) -> dict[str, Any]:
         if annotation in {inspect._empty, Any, None}:
             return {"type": "string"}
+        if annotation in {list, tuple, set}:
+            return {
+                "type": "array",
+                "items": {"type": "string"},
+            }
+        if annotation is dict:
+            return {"type": "object"}
         origin = get_origin(annotation)
         args = [arg for arg in get_args(annotation) if arg is not type(None)]
         if origin in {list, tuple, set}:
@@ -135,6 +142,10 @@ class EOToolRuntime:
             return value
         if annotation in {inspect._empty, Any, None}:
             return self._coerce_untyped_value(value)
+        if annotation in {list, tuple, set}:
+            annotation = annotation[Any]
+        elif annotation is dict:
+            annotation = dict[str, Any]
         origin = get_origin(annotation)
         args = [arg for arg in get_args(annotation) if arg is not type(None)]
 
@@ -261,6 +272,7 @@ class ToolContext:
     shell_program: str = "powershell"
     eo_runtime: EOToolRuntime | None = None
     active_skill_dir: Path | None = None
+    active_task_data_dir: Path | None = None
 
     def __post_init__(self) -> None:
         ensure_dir(self.workspace_root)
@@ -290,6 +302,13 @@ class Toolbox:
     def set_active_skill_dir(self, skill_dir: str | Path | None) -> None:
         self.context.active_skill_dir = None if skill_dir is None else Path(skill_dir).resolve()
 
+    def set_active_task_data_dir(self, task_data_dir: str | Path | None) -> None:
+        if task_data_dir is None:
+            self.context.active_task_data_dir = None
+            return
+        raw_path = Path(str(task_data_dir))
+        self.context.active_task_data_dir = raw_path if raw_path.is_absolute() else (self.context.workspace_root / raw_path)
+
     def _resolve_workspace_path(self, user_path: str, *, prefer_existing: bool = True) -> Path:
         normalized = user_path.replace("\\", "/").strip()
         skill_dir = self.context.active_skill_dir
@@ -308,9 +327,72 @@ class Toolbox:
 
     def _wrap_eo_tool(self, tool_name: str) -> Callable[..., Any]:
         def _call(**kwargs: Any) -> Any:
-            return self.context.eo_runtime.execute(tool_name, kwargs)
+            return self.context.eo_runtime.execute(tool_name, self._normalize_eo_arguments(kwargs))
 
         return _call
+
+    def _resolve_temp_artifact_path(self, user_path: str) -> str:
+        normalized = user_path.replace("\\", "/").strip()
+        if not normalized:
+            return user_path
+        candidate = Path(normalized)
+        if candidate.is_absolute():
+            return str(candidate) if candidate.exists() else user_path
+        try:
+            workspace_target = self._resolve_workspace_path(normalized)
+        except Exception:
+            workspace_target = None
+        if workspace_target is not None and workspace_target.exists():
+            return str(workspace_target)
+        if self.context.active_task_data_dir is not None:
+            task_target = self.context.active_task_data_dir / normalized
+            if task_target.exists():
+                return str(task_target.resolve())
+        matches = [
+            path.resolve()
+            for path in self.context.temp_root.rglob(candidate.name)
+            if str(path).replace("\\", "/").endswith(normalized)
+        ]
+        if matches:
+            matches.sort(key=lambda path: (path.stat().st_mtime, -len(str(path))), reverse=True)
+            return str(matches[0])
+        if "/" not in normalized and self.context.active_task_data_dir is not None:
+            direct_match = self.context.active_task_data_dir / candidate.name
+            if direct_match.exists():
+                return str(direct_match.resolve())
+        return user_path
+
+    def _normalize_eo_argument_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return self._resolve_temp_artifact_path(value)
+        if isinstance(value, list):
+            return [self._normalize_eo_argument_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._normalize_eo_argument_value(item) for item in value)
+        return value
+
+    def _normalize_eo_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        normalized: dict[str, Any] = {}
+        for key, value in arguments.items():
+            if key in {"output_path", "output_path_list"}:
+                normalized[key] = value
+                continue
+            if key == "path":
+                normalized[key] = value
+                continue
+            if key.endswith("_path") or key.endswith("_paths") or key in {
+                "file_path",
+                "file_list",
+                "image_path",
+                "image_paths",
+                "dir_path",
+                "path1",
+                "path2",
+            }:
+                normalized[key] = self._normalize_eo_argument_value(value)
+                continue
+            normalized[key] = value
+        return normalized
 
     def _register_builtin_tools(self) -> None:
         self._register(

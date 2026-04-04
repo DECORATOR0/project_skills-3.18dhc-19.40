@@ -113,6 +113,7 @@ class SkillEnvironment:
             max_steps=self.config.runtime.max_executor_steps,
         )
         self.toolbox.set_active_skill_dir(active_skill.header.skill_dir)
+        self.toolbox.set_active_task_data_dir(task.data_dir)
         try:
             user_prompt = render_prompt(
                 self.config.prompt_root / "executor_user.md",
@@ -143,6 +144,7 @@ class SkillEnvironment:
             )
         finally:
             self.toolbox.set_active_skill_dir(None)
+            self.toolbox.set_active_task_data_dir(None)
         env_result = EnvRunResult(
             final_answer=str(final_payload.get("final_answer", "")),
             final_choice_label=str(final_payload.get("choice_label", "")),

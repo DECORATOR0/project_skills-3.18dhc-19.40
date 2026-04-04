@@ -1,0 +1,60 @@
+{
+  "actor": {
+    "model": "gpt-5.2",
+    "base_url": "https://node-hk.sssaicode.com/api/v1/responses",
+    "api_key": "sk-sssaicode-9d340d3064511a95fb7f428f2356dfc7a08c724271a66aa1bdc72a3b2af85cb4",
+    "api_mode": "responses_sse",
+    "temperature": 0.3,
+    "timeout_seconds": 180,
+    "stream": false
+  },
+  "critic": {
+    "model": "gpt-5.2",
+    "base_url": "https://node-hk.sssaicode.com/api/v1/responses",
+    "api_key": "sk-sssaicode-9d340d3064511a95fb7f428f2356dfc7a08c724271a66aa1bdc72a3b2af85cb4",
+    "api_mode": "responses_sse",
+    "temperature": 0.3,
+    "timeout_seconds": 180,
+    "stream": false
+  },
+  "router": {
+    "model": "Qwen3-8B-local",
+    "base_url": "http://127.0.0.1:8101/v1",
+    "api_key": "local-vllm",
+    "temperature": 0.1,
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "executor": {
+    "model": "Qwen3-8B-local",
+    "base_url": "http://127.0.0.1:8101/v1",
+    "api_key": "local-vllm",
+    "temperature": 0.1,
+    "max_tokens": 8192,
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "paths": {
+    "workspace_root": "/data/xsy/project_skills-3.18dhc-19.40",
+    "prompt_root": "/data/xsy/project_skills-3.18dhc-19.40/prompts",
+    "run_root": "/data/xsy/project_skills-3.18dhc-19.40/runs",
+    "skill_library_root": "/data/xsy/project_skills-3.18dhc-19.40/skill_library",
+    "experience_buffer_path": "/data/xsy/project_skills-3.18dhc-19.40/runtime_state/experience_buffer.jsonl",
+    "dataset_path": "/data/xsy/project_skills-3.18dhc-19.40/benchmark/question.json",
+    "converted_dataset_path": "/data/xsy/project_skills-3.18dhc-19.40/data/converted/earth_bench_skill_rl/question.json",
+    "docs_root": "/data/xsy/project_skills-3.18dhc-19.40/docs"
+  },
+  "runtime": {
+    "max_router_candidates": 64,
+    "skill_match_threshold": 80.0,
+    "max_executor_steps": 20,
+    "max_actor_steps": 8,
+    "max_iterations_per_task": 10,
+    "skill_count_limit": 6,
+    "max_context_chars": 16384,
+    "python_executable": "/data/xsy/miniconda3/envs/earth-bench-skill-eval/bin/python",
+    "shell_program": "/bin/bash"
+  }
+}
