@@ -99,6 +99,21 @@ The framework needs the same fields regardless of source:
 ## Current EO Conversion
 The current EO dataset in this workspace is treated as `Type C`.
 
+### Expected benchmark layout
+
+The code expects the raw benchmark to resolve like this:
+
+```text
+benchmark/
+  question.json
+  data/
+    question1/
+    question2/
+    ...
+```
+
+For this project, the important constraint is logical path consistency, not whether `benchmark/data` is a physical directory or a symlink. As long as `benchmark/question.json` and the converted dataset both reference valid paths such as `benchmark/data/question37`, the loader and runtime stay valid.
+
 Conversion rule:
 - read `benchmark/question.json`
 - keep only `evaluation.type == "Autonomous Planning"`

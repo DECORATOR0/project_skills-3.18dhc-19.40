@@ -45,6 +45,7 @@ configs/
 docs/
   analysis/
     origin_dhc_skillpool_liuyouliang_analysis.md
+  pipeline_quickstart.md
   runtime_reverse_skills/
     README.md
     earth-spectrum-thermal-retrieval.md
@@ -87,6 +88,9 @@ prompts/
   router_system.md
   router_user.md
   tool_agent_protocol.md
+
+scripts/
+  run_pipeline.py
 
 skill_library/
   ndvi-lst-tvdi-annual-trend/
@@ -176,6 +180,15 @@ conda run -n earth-bench-skill-eval python -m nlrl_skills.cli --config "configs/
 The current converted file already exists at:
 - `data/converted/earth_bench_skill_rl/question.json`
 
+### Expected benchmark layout
+The current code expects these paths to stay logically aligned:
+- `benchmark/question.json`
+- `benchmark/data/question1/`
+- `benchmark/data/question2/`
+- `benchmark/data/questionN/`
+
+`benchmark/data` may be a real directory or a symlink to a shared benchmark checkout. The important part is that entries in `benchmark/question.json` and `data/converted/earth_bench_skill_rl/question.json` resolve to valid `benchmark/data/questionN` folders.
+
 ## Running A Debug Episode
 
 Run the full RL loop on one task:
@@ -201,6 +214,62 @@ Evaluate separately after training:
 ```powershell
 conda run -n earth-bench-skill-eval python -m nlrl_skills.cli --config "configs/system.json" evaluate-tasks --count 5 --start-index 0 --run-name "eval_first5_after_training"
 ```
+
+## One-Click Runner
+
+For other users, the easiest entry point is:
+- `scripts/run_pipeline.py`
+
+If the `earth-bench-skill-eval` environment is not already activated, use `conda run`:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py list-configs
+```
+
+Validate that the current benchmark and converted dataset paths are usable:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py check-data --config system
+```
+
+Create the default stratified task-id files:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py sample --config system --seed 20260403 --quota-scale 1
+```
+
+Run classic shared-library training:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py train-classic --config system --count 5 --run-name train_first5 --reset-skill-library --reset-experience-buffer
+```
+
+Run task-local parallel training:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py train-local --config system.train_local_actor_critic_sssai_gpt52 --count 30 --concurrency 20 --run-name train_local_c20
+```
+
+Aggregate a task-local run into the final 6-skill library:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py aggregate --config system.train_local_actor_critic_sssai_gpt52 --input-run-dir runs/train_local_c20
+```
+
+Evaluate an existing skill library:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py evaluate --config system --skill-library-root runs/train_local_c20/aggregated_skill_library --count 20 --concurrency 20 --run-name eval_after_aggregate
+```
+
+Run the full task-local pipeline in one command:
+
+```bash
+conda run -n earth-bench-skill-eval python scripts/run_pipeline.py full-local --config system.train_local_actor_critic_sssai_gpt52 --task-file data/task_sets/task_local_parallel_seed_20260403_x1/train_all_30.txt --concurrency 20 --eval-concurrency 20 --run-name local_full_c20
+```
+
+Additional usage notes and command patterns are collected in:
+- `docs/pipeline_quickstart.md`
 
 ## Logging
 

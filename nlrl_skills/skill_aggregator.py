@@ -613,6 +613,9 @@ class AggregatedSkillLibraryBuilder:
         source_mode = "retained_task_skills.json"
         if retained_path.exists():
             retained_rows = read_json(retained_path)
+            if not retained_rows:
+                retained_rows = _scan_partial_run_rows(task_local_run_dir)
+                source_mode = "partial_run_scan_after_empty_retained"
         else:
             retained_rows = _scan_partial_run_rows(task_local_run_dir)
             source_mode = "partial_run_scan"
