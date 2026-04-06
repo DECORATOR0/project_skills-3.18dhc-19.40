@@ -100,6 +100,7 @@ class EnvState:
     skill_headers: list[SkillHeader]
     active_skill: SkillDetail | None
     task_context: dict[str, Any] = field(default_factory=dict)
+    evaluation_mode: str = "skill-executor"
 
 
 @dataclass

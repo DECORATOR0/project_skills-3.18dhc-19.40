@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from nlrl_skills.config import SystemConfig, clone_system_config, load_system_config
 from nlrl_skills.data import load_converted_dataset
+from nlrl_skills.environment import NO_SKILL_EXECUTOR_EVALUATION_MODE, SKILL_EXECUTOR_EVALUATION_MODE
 from nlrl_skills.evaluator_runner import SkillPolicyEvaluator
 from nlrl_skills.skill_aggregator import AggregatedSkillLibraryBuilder
 from nlrl_skills.skills import reset_experience_buffer, reset_skill_library
@@ -309,7 +310,12 @@ def cmd_aggregate(args: argparse.Namespace) -> None:
 def cmd_evaluate(args: argparse.Namespace) -> None:
     config, _config_path = _load_config_from_args(args)
     evaluator = SkillPolicyEvaluator(config)
-    run_dir = evaluator.evaluate_tasks(run_name=args.run_name, concurrency=args.concurrency, **_selection_kwargs(args))
+    run_dir = evaluator.evaluate_tasks(
+        run_name=args.run_name,
+        concurrency=args.concurrency,
+        evaluation_mode=args.evaluation_mode,
+        **_selection_kwargs(args),
+    )
     print(f"run_dir: {_relative_or_abs(run_dir)}")
 
 
@@ -511,6 +517,12 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = sub.add_parser("evaluate", parents=[shared, task_select], help="Evaluate the current skill library without additional training.")
     evaluate.add_argument("--run-name", help="Optional run folder name.")
     evaluate.add_argument("--concurrency", type=int, default=1, help="Number of evaluation workers to run concurrently.")
+    evaluate.add_argument(
+        "--evaluation-mode",
+        choices=[SKILL_EXECUTOR_EVALUATION_MODE, NO_SKILL_EXECUTOR_EVALUATION_MODE],
+        default=SKILL_EXECUTOR_EVALUATION_MODE,
+        help="Choose the default skill-routed executor or the no-skill direct executor baseline.",
+    )
     evaluate.set_defaults(func=cmd_evaluate)
 
     full = sub.add_parser("full-local", parents=[shared, task_select], help="One-click local train -> aggregate -> evaluate.")

@@ -514,11 +514,20 @@ flowchart TD
 
     C0 --> C1["evaluate-tasks"]
     C1 --> C2["加载 benchmark task"]
-    C2 --> C3["discover_skills 读取当前 skill 池"]
+    C2 --> C2A{"评测 executor 消费模式"}
+
+    C2A --> C3["默认: discover_skills 读取当前 skill 池"]
     C3 --> C4["LLM SkillRouter 仍使用 router 配置"]
-    C4 --> C5["选中 skill 并加载工具范围"]
+    C4 --> C5["选中 aggregated skill 并加载工具范围"]
     C5 --> C6["executor 执行做题"]
     C6 --> C7["evaluation_summary"]
+
+    C2A --> C3B["消融: no-skill-executor 基线"]
+    C3B --> C4B["仍读取同一 task payload / choices / data_dir / file_list preview"]
+    C4B --> C5B["先按题面生成 shortlist"]
+    C5B --> C6B["不注入 aggregated skill, 也不走 SkillRouter"]
+    C6B --> C7B["同一 executor 只在 shortlist 内逐步选工具并做题"]
+    C7B --> C8B["evaluation_summary"]
 
     D0 --> D1["加载 benchmark question"]
     D1 --> D2["infer_question_profile 和 shortlist_tools"]
@@ -637,7 +646,46 @@ flowchart TB
 ### 5.2 一句话对照
 
 - `nlrl_skills`：动态 skill 池系统，`LLM router` 先选 skill，再让 executor 在该 skill 约束下做题。
+- `nlrl_skills` 消融基线：保持同一 executor 与同一 task 载荷，但去掉 aggregated skill 与 router，让 executor 直接逐步选工具做题。
 - `agent/skill_eval`：固定 6-skill 专用评测链，先 `code route skill`，再让 planner 在收紧后的工具空间里生成工具链。
+
+#### 5.2.1 补图：`nlrl_skills` 新增的 no-skill executor 消融基线
+
+这次新增的消融，不是另起一套评测器，而是在 `nlrl_skills/evaluate-tasks` 这条正式测试线里加了一个并行模式：
+
+- 默认模式还是老的 `skill-executor`
+- 新模式是 `no-skill-executor`
+- 两边都还是同一套 `task payload / choices / data_dir / file_list preview`
+- 新模式虽然没有 skill，但**仍然先生成 shortlist**，executor 不是看全工具集
+- 区别只在于：新模式**不再注入 aggregated skill，也不再先走 SkillRouter**
+
+```mermaid
+flowchart TB
+    A["evaluate-tasks"]
+    A --> B["加载 same benchmark task"]
+    B --> C{"evaluation_mode"}
+
+    C -->|skill-executor| D["discover_skills 读取聚合后的 6 个 family skill"]
+    D --> E["LLM SkillRouter 选择 1 条 aggregated skill"]
+    E --> F["executor 读取 task payload + activated SKILL.md + resources + allowed_tools"]
+    F --> G["逐步选工具并做题"]
+    G --> H["evaluation_summary"]
+
+    C -->|no-skill-executor| I["跳过 discover_skills / SkillRouter 消费链"]
+    I --> J["先按题面与文件线索生成 shortlist"]
+    J --> K["executor 仍读取同一 task payload"]
+    K --> L["skill_name = none / SKILL.md = not provided / resources = []"]
+    L --> M["不受 aggregated skill allowlist 约束"]
+    M --> N["同一 executor 只在 shortlist 内逐步选工具并做题"]
+    N --> O["evaluation_summary"]
+```
+
+看这张图时只记下面几条：
+
+- 这是**同一条正式评测线里的模式切换**，不是另起一个单独项目。
+- 新基线不是“换 executor”，而是“去掉 executor 前面的 aggregated skill 注入层”。
+- 为了保持对齐，`task payload / choices / data_dir / file_list preview` 都还在，而且还保留了题目级 `shortlist`。
+- 真正被拿掉的只有两样：`aggregated skill` 本体，以及前面的 `SkillRouter`。
 
 ---
 
@@ -1594,6 +1642,14 @@ flowchart TB
   - 训练看这 `140` 道已完成题；
   - 成功样本后续仍然聚合成 `6` 个 family skill；
   - 再看聚合后的测试分数。
+- 为了避免后面再找不到这批 `140` 题的明确题号，当前已经单独固化成一个 task set：
+  - 题号清单：
+    - `/data/xsy/project_skills-3.18dhc-19.40/data/task_sets/formal_same140_20260404/question_ids.txt`
+  - 对应 Earth-Bench task id：
+    - `/data/xsy/project_skills-3.18dhc-19.40/data/task_sets/formal_same140_20260404/task_ids.txt`
+  - 说明清单：
+    - `/data/xsy/project_skills-3.18dhc-19.40/data/task_sets/formal_same140_20260404/task_set_manifest.json`
+  - 这就是 `7.3.5` 训练、`7.3.5` 测试、`7.5` 训练、`7.5` 测试共用的同一批 `140` 题。
 - 当前主要想替换的是训练时的高成本位，也就是 `actor / critic` 里原先用的 `gpt-5.4`。
 - 聚合阶段先继续保留现有做法，不在这一轮里连聚合器一起换掉。
 
@@ -2178,6 +2234,79 @@ family 分布上主要还是：
 - **正式可比测试共有 `6` 组**：`7.3.5 baseline` + `7.3.5 gpt-5.4 API 聚合` + `7.3.5 gpt-5.2 API 聚合` + `7.5 Codex 聚合` + `7.5 gpt-5.4 API 聚合` + `7.5 gpt-5.2 API 聚合`；
 - 如果把中间过程也算进去，`7.5` 额外还有 `2` 组辅助测试，但它们不进入最终正式对比表。
 
+#### 7.5.7 为什么这三种聚合方式下，`gpt-5.4` 训练线都略输给了 `gpt-5.2` 训练线？
+
+问：现在对照更完整了，为什么不管是 `Codex` 聚合、外部 `gpt-5.4 API` 聚合，还是真实 `gpt-5.2 API` 聚合，最后都是 `gpt-5.2` 训练线分数更高？
+
+答：先把最容易误读的一点钉死：**这不是训练能力层面的“`5.2` 反超 `5.4`”**。
+
+因为如果只看训练侧，`gpt-5.4` 明显更强：
+
+- `7.3.5 / gpt-5.4` 训练成功保留了 `107 / 140` 个 source skill；
+- `7.5 / gpt-5.2` 训练成功保留了 `94 / 140` 个 source skill；
+- 两边 family 覆盖其实一样，差别主要不是“`5.2` 覆盖更全”，而是 `5.4` 多出了 `23` 个独有成功题，`5.2` 只有 `10` 个独有成功题。
+
+所以现在真正发生的事，不是 `5.2` 更会做题，而是：
+
+- **训练侧**：`5.4` 更会把单题 task-local skill 做出来；
+- **聚合后测试侧**：这些额外 skill 被压缩成 `6` 个 family skill 以后，没有稳定转化成更高的最终分数。
+
+从正式可比的 `6` 组结果看，`gpt-5.2` 训练线对 `gpt-5.4` 训练线的优势其实都很小：
+
+- `Codex` 聚合：`62` 比 `59`，只高 `3` 题；
+- 外部 `gpt-5.4 API` 聚合：`55` 比 `54`，只高 `1` 题；
+- 真实 `gpt-5.2 API` 聚合：`57` 比 `56`，也只高 `1` 题。
+
+这说明两件事：
+
+- 第一，这个现象**不是单纯由 Codex 手工聚合造成的**，因为把 `Codex` 变量拿掉以后，方向还是一样；
+- 第二，这个现象也**不是稳定碾压**，而只是当前链路下一个小幅、系统性的偏置。
+
+问：为什么我说这是“当前链路偏置”，而不是 `5.2` 本体更强？
+
+答：因为把任务级别摊开以后，这个优势并不稳定。
+
+- 在 `Codex` 聚合下，`5.2` 训练线只是在 `21` 题上优于 `5.4`，同时 `5.4` 也有 `18` 题反过来优于 `5.2`；
+- 在外部 `gpt-5.4 API` 聚合下，是 `17` 比 `16`；
+- 在真实 `gpt-5.2 API` 聚合下，是 `16` 比 `15`；
+- 更关键的是，**没有任何一道题**在这 `3` 种聚合模式下都稳定表现为“`5.2` 训练线赢 `5.4` 训练线”；
+- 反过来，倒是有 `3` 道题在这 `3` 种聚合模式下都稳定表现为“`5.4` 训练线更好”。
+
+所以更合理的解释是：
+
+- `gpt-5.4` 训练出来的 source skill 数量更多，内容也更丰富，但同时也更异质、更细碎；
+- 当前实验口径不是直接消费这 `107` 条 source skill，而是要先压缩成 `6` 条 family skill；
+- 一旦被压缩到 `6` 条，`5.4` 额外学到的那部分细节和特化经验，并不能被 `Qwen3-8B` 这一条消费链稳定吃进去；
+- 相比之下，`gpt-5.2` 虽然训练成功题更少，但聚出来的 family skill 在当前 `router / executor = Qwen3-8B` 的设定下，反而更紧、更像“可执行操作手册”，于是最后测试时略占上风。
+
+换句话说，当前更像是：
+
+> `gpt-5.4` 更强在“产出更多 source skill”，`gpt-5.2` 更占优在“这些 source skill 被压到 6 个 family skill 之后，恰好更适合当前本地 `Qwen3-8B` 去消费”。
+
+这也是为什么我不建议把现在的现象解读成“`5.4` 不如 `5.2`”，而应该解读成：
+
+- **当前 `6`-skill 聚合口径 + 当前 `Qwen3-8B` 消费口径**，对 `5.2` 训练产物更友好；
+- 这更像聚合风格适配问题、运行时消费问题，而不是模型能力层级倒挂。
+
+问：那既然 `5.4` 训练贵很多，而当前最终测试又没占到优势，能不能先用 `5.2` 取代 `5.4` 做调优？
+
+答：**可以把 `5.2` 作为当前阶段的默认调优模型，但不建议把 `5.4` 完全废掉。**
+
+更务实的结论应该是：
+
+- 如果目标是做日常 prompt 调整、tool contract 收紧、skill schema 改写、聚合 prompt 迭代、并行配置试错，这一阶段完全可以优先用 `gpt-5.2`；
+- 原因很直接：它训练成本更低，而且在当前完整链路下，最终测试分数并没有输，甚至还略高一点；
+- 但如果目标是做“最终定版结论”或者确认高水位上限，`gpt-5.4` 仍然不能被直接判死刑，因为训练侧 `107 / 140` 对 `94 / 140` 这个差距是真实存在的，说明它在 source-skill 生成能力上依旧更强。
+
+所以这一轮更稳妥的实验策略应该是：
+
+- **平时调优 / 多轮消融 / 快速试错**：默认先用 `gpt-5.2`；
+- **关键里程碑复验 / 最终对外结论 / 高水位确认**：再抽少量关键配置回到 `gpt-5.4` 做复核。
+
+如果只留一句执行建议，那就是：
+
+> 在当前这条训练 -> `6` family skill 聚合 -> `Qwen3-8B` 测试链路上，`gpt-5.2` 已经足够承担“便宜的主力调优模型”；但 `gpt-5.4` 仍然保留为高成本、高上限的阶段性复验模型，而不是现在就彻底移除。
+
 ### 7.6 本地 Gemma-4 替代训练侧 `gpt-5.4`（待启动）
 
 这一段不是继续改训练框架，而是想验证一件更直接的事：
@@ -2298,3 +2427,101 @@ family 分布上主要还是：
 如果只保留一句最该记住的话，`7.6` 可以先记成：
 
 > `7.6` 的目标是用本地 `Gemma-4-31B-it` 替代训练侧 `gpt-5.4`，保持 `Qwen3-8B` 继续负责 `router / executor`，先完成“本地强模型是否能承担训练与聚合高成本位”的验证；截至当前，配置与环境已准备，正式实验尚未开始。
+
+### 7.7 no-skill executor shortlist 消融（same140，已完成）
+
+这一段记录的是这次新加的 `no-skill-executor` 正式对比。它不是换一套新评测器，也不是把工具全集直接丢给模型，而是在 `nlrl_skills` 同一条 `evaluate` 主线上，去掉 `aggregated skill + SkillRouter`，但**仍然保留题目级 shortlist**，让同一个 executor 只在 shortlist 里逐步选工具做题。
+
+#### 7.7.1 实验口径与运行位置
+
+这次 `7.7` 的口径固定如下：
+
+- `evaluation_mode = no-skill-executor`
+- `router / executor` 仍然使用 `GPU0` 上的本地 `Qwen3-8B`
+- 测试题集仍然是 `7.5` / `7.3.5` 共用的 same `140` 题
+- 测试并发仍然是 `20`
+- `max_executor_steps` 仍然是 `20`
+- `task payload / choices / data_dir / file_list preview` 仍然全部保留
+- 真正拿掉的只有：
+  - `aggregated skill` 注入
+  - `SkillRouter` 选择 skill 这一层
+- 但**没有**放开到全工具集；当前仍然先按题面和文件线索生成 question-level `shortlist`，再把 executor 的 `allowed_tools` 限制在这份 shortlist 内
+
+这次用于发起正式 run 的脚本与结果路径分别是：
+
+- 正式脚本：
+  - `/data/xsy/project_skills-3.18dhc-19.40/scripts/orchestrate_77_noskill_same140_gpu0.py`
+- 冒烟 run：
+  - `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/smoke_noskill_shortlist_q2_20260406`
+- 正式 run：
+  - `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/eval_noskill_executor_gpt52success94_localqwen3_gpu0_same140_c20_20260406_r3`
+- orchestration summary：
+  - `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/_orchestration_noskill_same140_gpu0_20260406_r3.summary.json`
+- 正式总表：
+  - `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/eval_noskill_executor_gpt52success94_localqwen3_gpu0_same140_c20_20260406_r3/evaluation_summary.json`
+
+#### 7.7.2 same140 正式结果
+
+这轮 `no-skill-executor` 已经在 same `140` 题上完整跑完。当前正式结果如下：
+
+- `task_count = 140`
+- `success_count = 56`
+- `Accuracy = 0.4000`
+- `TAO = 0.3602`
+- `TIO = 0.3475`
+- `TEM = 0.0489`
+- `Parameters = 0.0332`
+- `Efficiency = 0.5894`
+
+运行时还需要补记一条：
+
+- `Q165` 有一次 `Streaming response produced empty content.`，当前已按失败计入总表
+- 但即便把这 `1` 题乐观补回，最多也只是 `57 / 140`，仍然低于当前带 skill 的正式基线
+
+#### 7.7.3 和当前 `7.5 Codex` 正式基线的同口径对比
+
+这里的对照基线，使用当前 `7.5` 那版 same `140` 正式总表：
+
+- `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/eval_aggregated6_gpt52success94_localqwen3_gpu0_same140_merged_c20_20260405/evaluation_summary.json`
+
+两边当前同口径结果如下：
+
+| 方案 | success_count | Accuracy | TAO | TIO | TEM | Efficiency | Parameters |
+| ---- | ------------- | -------- | --- | --- | --- | ---------- | ---------- |
+| `7.5 Codex` skill 注入基线 | `62` | `0.4429` | `0.5339` | `0.4985` | `0.2251` | `1.0605` | `0.1280` |
+| `7.7 no-skill-executor` | `56` | `0.4000` | `0.3602` | `0.3475` | `0.0489` | `0.5894` | `0.0332` |
+| 差值（`7.7 - 7.5`） | `-6` | `-0.0429` | `-0.1737` | `-0.1510` | `-0.1762` | `-0.4711` | `-0.0948` |
+
+如果继续看 task 级别的净变化，这轮 `7.7` 不是完全一边倒地输，而是：
+
+- 相对 `7.5` 新修回 `12` 题：
+  - `22 / 55 / 66 / 67 / 75 / 95 / 120 / 127 / 136 / 138 / 152 / 181`
+- 但同时也丢掉了 `18` 题：
+  - `1 / 3 / 11 / 43 / 47 / 50 / 56 / 98 / 101 / 112 / 124 / 137 / 140 / 155 / 157 / 164 / 168 / 178`
+- 所以净效果就是：
+  - `+12`
+  - `-18`
+  - 总计 `-6` 题
+
+#### 7.7.4 当前结论
+
+这轮 `7.7` 最重要的结论，不是“没有 skill 以后完全做不了题”，而是：
+
+- 仅靠 `shortlist`，同一个 `Qwen3-8B` executor 仍然能做对 `56 / 140 = 0.4000`
+- 说明 question-level 工具收缩本身已经提供了一部分帮助
+
+但更关键的是：
+
+- 当 shortlist 已经保留不变时，只拿掉 `aggregated skill + SkillRouter`，总分还是从 `62 / 140` 掉到 `56 / 140`
+- 而且掉的不只是最终 `Accuracy`
+- `TAO / TIO / TEM / Parameters / Efficiency` 这几项也全部同步明显下降
+
+这意味着当前带 skill 的收益，不只是“帮模型少看一点工具”：
+
+- 真正起作用的，是 `aggregated skill` 带来的 family-level 执行 guidance、focus tools、以及更稳定的工具序列先验
+- shortlist 负责提供硬边界
+- skill 注入负责把 executor 往正确的工具流和参数习惯上继续往前推
+
+所以 `7.7` 当前最稳的收口应该是：
+
+> 在 same `140` 题、同一 `Qwen3-8B`、同一 `shortlist`、同一 `20` 步预算下，去掉 `aggregated skill + SkillRouter` 后，`no-skill-executor` 的正式结果是 `56 / 140 = 0.4000`，低于当前带 skill 的 `62 / 140 = 0.4429`。这说明 shortlist 本身确实有价值，但它不足以替代 aggregated skill 注入；当前这套 family-level skill guidance 仍然在工具链组织、参数对齐和整体执行效率上提供了可观增益。

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .config import clone_system_config, load_system_config
 from .data import convert_earth_bench_question_file
+from .environment import NO_SKILL_EXECUTOR_EVALUATION_MODE, SKILL_EXECUTOR_EVALUATION_MODE
 from .evaluator_runner import SkillPolicyEvaluator
 from .skill_aggregator import AggregatedSkillLibraryBuilder
 from .skills import discover_skills, reset_experience_buffer, reset_skill_library
@@ -69,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     _task_selection_args(evaluate)
     evaluate.add_argument("--run-name", help="Optional run folder name")
     evaluate.add_argument("--concurrency", type=int, default=1, help="Number of evaluation workers to run concurrently.")
+    evaluate.add_argument(
+        "--evaluation-mode",
+        choices=[SKILL_EXECUTOR_EVALUATION_MODE, NO_SKILL_EXECUTOR_EVALUATION_MODE],
+        default=SKILL_EXECUTOR_EVALUATION_MODE,
+        help="Choose the default skill-routed executor or the no-skill direct executor baseline.",
+    )
 
     aggregate = sub.add_parser("aggregate-task-local-skills", help="Aggregate retained task-local skills into a 6-skill library.")
     aggregate.add_argument("--input-run-dir", required=True, help="Task-local parallel training run directory.")
@@ -157,6 +164,7 @@ def main() -> None:
             start_index=args.start_index,
             run_name=args.run_name,
             concurrency=args.concurrency,
+            evaluation_mode=args.evaluation_mode,
         )
         print(run_dir)
         return
