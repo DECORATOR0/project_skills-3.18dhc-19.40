@@ -2522,6 +2522,24 @@ family 分布上主要还是：
 - shortlist 负责提供硬边界
 - skill 注入负责把 executor 往正确的工具流和参数习惯上继续往前推
 
+另外，这轮还补出了一条很直接的运行时观察：**shortlist 本身也是必要条件，不只是 skill 注入才重要。**
+
+- `2026-04-06 15:37:44` 启动的早期误配置 run
+  - `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/eval_noskill_executor_gpt52success94_localqwen3_gpu0_same140_c20_20260406_r2`
+  - 当时虽然已经切到 `no-skill-executor`，但 executor 仍然等价于看全工具集，`env/state.json` 里还没有 `shortlisted_tools`
+  - 它在并发 `20` 下的前 `10` 分钟 heartbeat 只有 `2 / 140`
+  - 前 `20` 分钟 heartbeat 也只有 `6 / 140`
+- 修正后的 shortlist 正式 run
+  - `/data/xsy/project_skills-3.18dhc-19.40/runs_gpu0/eval_noskill_executor_gpt52success94_localqwen3_gpu0_same140_c20_20260406_r3`
+  - `env/state.json` 里已经稳定记录非空 `shortlisted_tools`
+  - 前 `10` 分钟 heartbeat 直接到了 `64 / 140`
+
+这个差异说明：
+
+- 一旦不给 shortlist，而是让 `Qwen3-8B` 在接近全工具集的空间里自己路由，它非常容易在错误工具路径上反复试探
+- 错一次以后，后面会继续消耗 `ReAct` step 去修正，导致单题尾延迟明显拉长，整体吞吐也急剧下降
+- 所以这次 `7.7` 不只是证明“aggregated skill 有增益”，也同时证明了“**shortlist 这层工具收缩本身不能拿掉**”
+
 所以 `7.7` 当前最稳的收口应该是：
 
 > 在 same `140` 题、同一 `Qwen3-8B`、同一 `shortlist`、同一 `20` 步预算下，去掉 `aggregated skill + SkillRouter` 后，`no-skill-executor` 的正式结果是 `56 / 140 = 0.4000`，低于当前带 skill 的 `62 / 140 = 0.4429`。这说明 shortlist 本身确实有价值，但它不足以替代 aggregated skill 注入；当前这套 family-level skill guidance 仍然在工具链组织、参数对齐和整体执行效率上提供了可观增益。
