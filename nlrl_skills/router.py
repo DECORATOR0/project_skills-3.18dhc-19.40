@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import get_close_matches
 import json
 from pathlib import Path
 
@@ -7,6 +8,16 @@ from .config import SystemConfig
 from .llm import OpenAICompatibleLLM, log_llm_call
 from .prompting import render_prompt
 from .schemas import DatasetTask, RouterResult, RouterSkillScore, SkillHeader, LLMMessage
+
+
+def _resolve_skill_name(name: str, valid_names: set[str]) -> str:
+    candidate = str(name).strip()
+    if not candidate:
+        return ""
+    if candidate in valid_names:
+        return candidate
+    matches = get_close_matches(candidate, list(valid_names), n=1, cutoff=0.88)
+    return matches[0] if matches else ""
 
 
 class SkillRouter:
@@ -41,7 +52,17 @@ class SkillRouter:
                 ensure_ascii=False,
                 indent=2,
             ),
-            skills_json=json.dumps([header.__dict__ for header in skill_headers], ensure_ascii=False, indent=2),
+            skills_json=json.dumps(
+                [
+                    {
+                        "name": header.name,
+                        "description": header.description,
+                    }
+                    for header in skill_headers
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
         )
         payload, llm_result = self.llm.chat_json(
             [
@@ -51,15 +72,32 @@ class SkillRouter:
         )
         log_llm_call(log_dir, "router", llm_result)
 
-        scores = [
-            RouterSkillScore(
-                skill_name=str(item.get("skill_name", "")),
+        valid_names = {header.name for header in skill_headers}
+        score_by_name: dict[str, RouterSkillScore] = {}
+        for item in payload.get("scores", []):
+            resolved_name = _resolve_skill_name(item.get("skill_name", ""), valid_names)
+            if not resolved_name:
+                continue
+            score = RouterSkillScore(
+                skill_name=resolved_name,
                 score=float(item.get("score", 0.0)),
                 reason=str(item.get("reason", "")),
             )
-            for item in payload.get("scores", [])
+            existing = score_by_name.get(resolved_name)
+            if existing is None or score.score > existing.score:
+                score_by_name[resolved_name] = score
+        scores = [
+            score_by_name.get(
+                header.name,
+                RouterSkillScore(
+                    skill_name=header.name,
+                    score=0.0,
+                    reason="Router response omitted this catalog skill; defaulted to score 0.",
+                ),
+            )
+            for header in skill_headers
         ]
-        selected = str(payload.get("selected_skill", "")).strip()
+        selected = _resolve_skill_name(payload.get("selected_skill", ""), valid_names)
         has_skill = bool(payload.get("has_applicable_skill", False)) and any(
             item.score >= self.config.runtime.skill_match_threshold for item in scores
         )
