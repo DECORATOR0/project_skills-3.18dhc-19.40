@@ -176,6 +176,34 @@ def _body_hint_flags(detail: SkillDetail) -> set[str]:
         flags.add("validate_inputs")
     if _contains_any(text, ("multiple choice", "nearest matching choice", "answer letter", "closest listed option")):
         flags.add("late_choice_mapping")
+    if _contains_any(
+        text,
+        (
+            "signed change",
+            "delta =",
+            "avg_later",
+            "avg_earlier",
+            "later - earlier",
+            "change between",
+            "between two dates",
+            "between two dates/months/years",
+            "between two time windows",
+            "before/after",
+        ),
+    ):
+        flags.add("compare_after_blocks")
+    if _contains_any(
+        text,
+        (
+            "benchmark/out",
+            "output_paths",
+            "relative path",
+            "relative paths",
+            "task-local output",
+            "returned artifact",
+        ),
+    ):
+        flags.add("task_local_output_paths")
     return flags
 
 
@@ -221,12 +249,23 @@ def _pattern_summary(row: dict, detail: SkillDetail) -> str:
         sentences.append(
             f"Use `{derive_tool}` or the matching family derivation step to create the intermediate artifact first, then feed that returned artifact into downstream tools."
         )
+        if tool_set & SUMMARY_TOOLS or tool_set & COMPARISON_TOOLS or "compare_after_blocks" in flags:
+            sentences.append(
+                "For multi-block workflows with planned derived outputs, finish the producing tool call for every required block before starting summary or comparison steps, and only use tool-returned artifact paths downstream."
+            )
+        if "task_local_output_paths" in flags:
+            sentences.append(
+                "Write derived artifacts into a task-local output namespace instead of the source dataset directory, then reuse the exact returned artifact paths downstream."
+            )
+            sentences.append(
+                "Treat helper-planned output paths as seeds only, and treat pre-existing derived files discovered in the source directory as ambient unless the task explicitly names them as required inputs."
+            )
     if tool_set & THRESHOLD_TOOLS:
         threshold_tool = next(tool for tool in tools if tool in THRESHOLD_TOOLS)
         sentences.append(
             f"Keep `{threshold_tool}` or the equivalent threshold/count operation near the end, after the target raster or grouped value has been prepared."
         )
-    elif tool_set & COMPARISON_TOOLS:
+    elif tool_set & COMPARISON_TOOLS or "compare_after_blocks" in flags:
         sentences.append(
             "For comparison or trend questions, finish each date, year, or region block first, then run the final compare/trend step."
         )
@@ -270,15 +309,23 @@ def _build_core_guidance(source_details: list[tuple[dict, SkillDetail]]) -> list
     ]
     if union_tools & DERIVATION_TOOLS:
         guidance.append(
-            "If the family requires a derived raster or physical retrieval, generate that intermediate artifact first and propagate the exact returned path or value into downstream tools."
+            "If the family requires an intermediate artifact or retrieved value, generate it first, write it into a task-local output namespace rather than the source dataset directory, and propagate the exact returned path or value into downstream tools."
         )
+        if union_tools & SUMMARY_TOOLS or union_tools & COMPARISON_TOOLS or "compare_after_blocks" in union_flags:
+            guidance.append(
+                "For multi-block workflows with planned derived outputs, complete the producing tool call for every required block/window before starting batch statistics or comparison, and only use tool-returned artifact paths downstream."
+            )
     if union_tools & THRESHOLD_TOOLS:
         guidance.append(
             "For threshold, condition, or exceedance tasks, keep the threshold/count tool near the terminal step, after the target raster or grouped statistic is fully prepared."
         )
-    if union_tools & COMPARISON_TOOLS:
+    if union_tools & COMPARISON_TOOLS or "compare_after_blocks" in union_flags:
         guidance.append(
             "For multi-date, multi-year, multi-region, or before/after questions, keep one explicit block per unit and only do the final comparison or trend step after those blocks are complete."
+        )
+    if "compute_linear_trend" in union_tools:
+        guidance.append(
+            "When using `compute_linear_trend`, prefer `compute_linear_trend(y=series)` and let the observed sequence order act as time by default. Only pass `x` when it is derived from discovered data and exactly matches the `y` length."
         )
     if union_tools & PERCEPTION_TOOLS:
         guidance.append(
@@ -290,6 +337,10 @@ def _build_core_guidance(source_details: list[tuple[dict, SkillDetail]]) -> list
         guidance.append("Validate required bands, scenes, or region groups before the expensive derivation step; do not silently fabricate missing critical inputs.")
     if "late_choice_mapping" in union_flags:
         guidance.append("If the task is multiple choice, compute the substantive result first and only map to the answer option at the end.")
+    if "task_local_output_paths" in union_flags:
+        guidance.append(
+            "If discovery surfaces pre-existing derived artifacts in the source directory, treat them as ambient unless the task explicitly names them; downstream steps for new produced artifacts should use tool-returned paths from the current run."
+        )
     deduped: list[str] = []
     for item in guidance:
         if item not in deduped:
@@ -371,12 +422,15 @@ def _normalize_skill_markdown(
     except Exception:
         parsed_meta = {}
         body = generated_skill_md.strip()
+    parsed_metadata = parsed_meta.get("metadata", {})
+    merged_metadata = dict(parsed_metadata) if isinstance(parsed_metadata, dict) else {}
+    merged_metadata.update(metadata)
     normalized_meta = {
         "name": family_id,
         "description": str(parsed_meta.get("description", description)).strip() or description,
         "allowed-tools": allowed_tools,
         "compatibility": "nlrl_skills.executor.task-local-aggregated-v1",
-        "metadata": metadata,
+        "metadata": merged_metadata,
     }
     return _render_skill_markdown(normalized_meta, body).strip() + "\n"
 
@@ -444,6 +498,16 @@ def _aggregator_llm_config(config: SystemConfig) -> LLMConfig:
         ),
         stream=stream_raw.lower() in {"1", "true", "yes", "on"} if stream_raw else actor.stream,
     )
+
+
+def _aggregator_prompt_path(config: SystemConfig, default_name: str, env_var: str) -> Path:
+    raw = os.environ.get(env_var, "").strip()
+    if not raw:
+        return config.prompt_root / default_name
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return config.prompt_root / raw
 
 
 def _format_skill_md(
@@ -530,9 +594,19 @@ class AggregatedSkillLibraryBuilder:
         log_dir: Path,
     ) -> tuple[str, str, dict]:
         source_skill_names = [detail.header.name for _, detail in source_details]
-        system_prompt = render_prompt(self.config.prompt_root / "aggregator_system.md")
+        system_prompt = render_prompt(
+            _aggregator_prompt_path(
+                self.config,
+                "aggregator_system.md",
+                "NLRL_AGGREGATOR_SYSTEM_PROMPT",
+            )
+        )
         user_prompt = render_prompt(
-            self.config.prompt_root / "aggregator_merge_family.md",
+            _aggregator_prompt_path(
+                self.config,
+                "aggregator_merge_family.md",
+                "NLRL_AGGREGATOR_USER_PROMPT",
+            ),
             family_json=json.dumps(
                 {
                     "family_id": family_id,
@@ -543,6 +617,16 @@ class AggregatedSkillLibraryBuilder:
                     "route_signals": sorted(set(spec.trigger_keywords)),
                     "training_buckets": sorted({row["training_bucket"] for row in family_rows}),
                     "allowed_tools_candidate": allowed_tools,
+                    "allowed_tools_candidate_semantics": (
+                        "Treat `allowed_tools_candidate` as the hard executable envelope for this aggregated skill. "
+                        "It must remain tight, but it also must be sufficient for end-to-end execution so the executor "
+                        "does not dead-end mid-run after routing into the family."
+                    ),
+                    "requested_focus_mode_contract": (
+                        "Add a lightweight in-envelope focus layer for 2-4 family-internal modes. "
+                        "Each mode should only help the executor choose tools inside the allowed envelope; "
+                        "do not recreate question-level routing or an external shortlist."
+                    ),
                     "consumer_metadata_contract": metadata,
                 },
                 ensure_ascii=False,

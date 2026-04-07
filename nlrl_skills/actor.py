@@ -15,6 +15,7 @@ from .skills import (
     retrieve_similar_experiences,
     write_skill_bundle,
 )
+from .tool_hints import render_relevant_tools_json
 from .utils import utc_timestamp, write_json
 
 
@@ -84,6 +85,12 @@ class SkillActor:
             skill_count_limit=self.config.runtime.skill_count_limit,
         )
         headers_map = self._load_headers_map(state.skill_headers)
+        relevant_tools_json = render_relevant_tools_json(
+            self.config,
+            task_prompt=state.task_prompt,
+            gold_tool_names=state.gold_tool_names,
+            skill_headers=state.skill_headers,
+        )
 
         if action_type == "create_skill":
             user_prompt = render_prompt(
@@ -101,6 +108,7 @@ class SkillActor:
                 ),
                 reward_json=json.dumps(reward.__dict__, ensure_ascii=False, indent=2),
                 existing_skills_json=json.dumps([header.__dict__ for header in state.skill_headers], ensure_ascii=False, indent=2),
+                relevant_tools_json=relevant_tools_json,
             )
             payload = self._model_json(system_prompt, user_prompt, log_dir, "actor_create_skill")
         elif action_type == "merge_skills":
@@ -130,6 +138,7 @@ class SkillActor:
                     ensure_ascii=False,
                     indent=2,
                 ),
+                relevant_tools_json=relevant_tools_json,
             )
             payload = self._model_json(system_prompt, user_prompt, log_dir, "actor_merge_skill")
         else:
@@ -163,6 +172,7 @@ class SkillActor:
                     indent=2,
                 ),
                 experiences_json=json.dumps([item.__dict__ for item in similar], ensure_ascii=False, indent=2),
+                relevant_tools_json=relevant_tools_json,
             )
             payload = self._model_json(system_prompt, user_prompt, log_dir, "actor_modify_skill")
             action_type = "modify_skill"

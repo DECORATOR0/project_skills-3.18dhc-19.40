@@ -15,6 +15,22 @@ from .utils import ensure_dir, read_text, safe_relative_path, write_text
 
 EO_TOOL_FILES = ["Index.py", "Inversion.py", "Perception.py", "Analysis.py", "Statistics.py"]
 _TOOL_IMPORT_LOCK = threading.Lock()
+_EO_TOOL_REGISTRY_FALLBACKS = {
+    # Keep runtime exposure aligned with the skill-eval catalog. These
+    # single-image index helpers exist as real functions, but historically only
+    # their batch variants were decorated with `@mcp.tool`, which caused
+    # executor-visible tools to diverge from the catalog and aggregated skills.
+    "calculate_ndvi",
+    "calculate_ndwi",
+    "calculate_ndbi",
+    "calculate_evi",
+    "calculate_nbr",
+    "calculate_fvc",
+    "calculate_wri",
+    "calculate_ndti",
+    "calculate_ndsi",
+    "calculate_frp",
+}
 
 
 @dataclass
@@ -236,9 +252,14 @@ class EOToolRuntime:
             parsed = {name: desc for name, desc in self._parse_tool_nodes(source_path)}
             module = self._load_module(module_file)
             for name, value in vars(module).items():
-                if name not in parsed or not inspect.isfunction(value):
+                if not inspect.isfunction(value):
                     continue
-                desc = parsed[name]
+                desc = parsed.get(name, "")
+                if not desc:
+                    if name not in _EO_TOOL_REGISTRY_FALLBACKS:
+                        continue
+                    doc = inspect.getdoc(value) or ""
+                    desc = doc.strip().splitlines()[0] if doc.strip() else f"EO tool {name}"
                 self._registry[name] = ToolSpec(
                     name=name,
                     description=desc or f"EO tool {name}",
@@ -327,9 +348,24 @@ class Toolbox:
 
     def _wrap_eo_tool(self, tool_name: str) -> Callable[..., Any]:
         def _call(**kwargs: Any) -> Any:
-            return self.context.eo_runtime.execute(tool_name, self._normalize_eo_arguments(kwargs))
+            result = self.context.eo_runtime.execute(tool_name, self._normalize_eo_arguments(kwargs))
+            return self._normalize_eo_result_value(result)
 
         return _call
+
+    def _normalize_eo_result_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            for prefix in ("Result saved at ", "Result save at "):
+                if value.startswith(prefix):
+                    return value[len(prefix) :].strip()
+            return value
+        if isinstance(value, list):
+            return [self._normalize_eo_result_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._normalize_eo_result_value(item) for item in value)
+        if isinstance(value, dict):
+            return {key: self._normalize_eo_result_value(item) for key, item in value.items()}
+        return value
 
     def _resolve_temp_artifact_path(self, user_path: str) -> str:
         normalized = user_path.replace("\\", "/").strip()
@@ -348,10 +384,35 @@ class Toolbox:
             task_target = self.context.active_task_data_dir / normalized
             if task_target.exists():
                 return str(task_target.resolve())
+        temp_suffixes = [normalized]
+        if normalized.startswith("benchmark/out/"):
+            stripped = normalized[len("benchmark/out/") :]
+            if stripped:
+                temp_suffixes.append(stripped)
+        if normalized.startswith("benchmark/data/"):
+            parts = normalized.split("/", 3)
+            if len(parts) == 4:
+                temp_suffixes.append(f"{parts[2]}/{parts[3]}")
+                temp_suffixes.append(parts[3])
+        if self.context.active_task_data_dir is not None:
+            try:
+                task_rel = self.context.active_task_data_dir.resolve().relative_to(self.context.workspace_root.resolve())
+                task_rel_norm = str(task_rel).replace("\\", "/").strip("/")
+                if task_rel_norm and normalized.startswith(f"{task_rel_norm}/"):
+                    suffix = normalized[len(task_rel_norm) + 1 :]
+                    if suffix:
+                        temp_suffixes.append(f"{Path(task_rel_norm).name}/{suffix}")
+                        temp_suffixes.append(suffix)
+            except Exception:
+                pass
+        deduped_suffixes: list[str] = []
+        for suffix in temp_suffixes:
+            if suffix and suffix not in deduped_suffixes:
+                deduped_suffixes.append(suffix)
         matches = [
             path.resolve()
             for path in self.context.temp_root.rglob(candidate.name)
-            if str(path).replace("\\", "/").endswith(normalized)
+            if any(str(path).replace("\\", "/").endswith(suffix) for suffix in deduped_suffixes)
         ]
         if matches:
             matches.sort(key=lambda path: (path.stat().st_mtime, -len(str(path))), reverse=True)
@@ -361,6 +422,35 @@ class Toolbox:
             if direct_match.exists():
                 return str(direct_match.resolve())
         return user_path
+
+    def _normalize_output_artifact_path(self, user_path: str) -> str:
+        normalized = user_path.replace("\\", "/").strip().lstrip("./")
+        if not normalized:
+            return user_path
+        candidate = Path(normalized)
+        if candidate.is_absolute():
+            return user_path
+
+        if normalized.startswith("benchmark/out/"):
+            return normalized[len("benchmark/out/") :]
+
+        if normalized.startswith("benchmark/data/"):
+            parts = normalized.split("/", 3)
+            if len(parts) == 4:
+                return f"{parts[2]}/{parts[3]}"
+
+        if self.context.active_task_data_dir is not None:
+            try:
+                task_rel = self.context.active_task_data_dir.resolve().relative_to(self.context.workspace_root.resolve())
+                task_rel_norm = str(task_rel).replace("\\", "/").strip("/")
+                if task_rel_norm and normalized.startswith(f"{task_rel_norm}/"):
+                    suffix = normalized[len(task_rel_norm) + 1 :]
+                    if suffix:
+                        return f"{Path(task_rel_norm).name}/{suffix}"
+            except Exception:
+                pass
+
+        return normalized
 
     def _normalize_eo_argument_value(self, value: Any) -> Any:
         if isinstance(value, str):
@@ -374,8 +464,14 @@ class Toolbox:
     def _normalize_eo_arguments(self, arguments: dict[str, Any]) -> dict[str, Any]:
         normalized: dict[str, Any] = {}
         for key, value in arguments.items():
-            if key in {"output_path", "output_path_list"}:
-                normalized[key] = value
+            if key == "output_path":
+                normalized[key] = self._normalize_output_artifact_path(str(value))
+                continue
+            if key in {"output_path_list", "output_paths"}:
+                if isinstance(value, list):
+                    normalized[key] = [self._normalize_output_artifact_path(str(item)) for item in value]
+                else:
+                    normalized[key] = value
                 continue
             if key == "path":
                 normalized[key] = value
@@ -629,8 +725,17 @@ class Toolbox:
             errors="replace",
             check=False,
         )
+        stdout_text = completed.stdout or ""
+        stderr_text = completed.stderr or ""
+        if completed.returncode == 0 and not stderr_text.strip():
+            stripped_stdout = stdout_text.strip()
+            if stripped_stdout:
+                try:
+                    return json.loads(stripped_stdout)
+                except Exception:
+                    pass
         return {
             "returncode": completed.returncode,
-            "stdout": _truncate(completed.stdout),
-            "stderr": _truncate(completed.stderr),
+            "stdout": _truncate(stdout_text),
+            "stderr": _truncate(stderr_text),
         }

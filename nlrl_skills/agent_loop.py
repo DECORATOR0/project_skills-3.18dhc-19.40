@@ -13,6 +13,7 @@ _TRUNCATION_MARKER = "\n\n[truncated]\n"
 _OLDER_MESSAGE_LIMIT = 1600
 _MIN_MESSAGE_LIMIT = 600
 _RECENT_TOOL_RESULTS_TO_KEEP = 3
+_EARLY_TOOL_RESULTS_TO_KEEP = 2
 
 
 def _truncate_text(text: str, limit: int) -> str:
@@ -68,7 +69,13 @@ def _prepare_messages_for_call(messages: list[LLMMessage], max_context_chars: in
     if len(messages) <= 2:
         return _fit_messages_to_budget(messages, max_context_chars)
 
-    recent_tool_results = set(_tool_result_indexes(messages)[-_RECENT_TOOL_RESULTS_TO_KEEP:])
+    tool_result_indexes = _tool_result_indexes(messages)
+    recent_tool_results = set(tool_result_indexes[-_RECENT_TOOL_RESULTS_TO_KEEP:])
+    if tool_result_indexes:
+        # Keep the first tool result as a stable evidence anchor. In multi-block
+        # EO tasks this is often the only full discovery listing available for
+        # later windows/groups after several downstream tool turns.
+        recent_tool_results.update(tool_result_indexes[:_EARLY_TOOL_RESULTS_TO_KEEP])
     prepared: list[LLMMessage] = []
     for idx, message in enumerate(messages):
         content = message.content

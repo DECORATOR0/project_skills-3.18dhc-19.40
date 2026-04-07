@@ -12,6 +12,11 @@ Global constraints:
 4. Favor deterministic scripts for arithmetic, parsing, repeated logic, or fragile workflows.
 5. The total number of skills should not exceed {skill_count_limit} unless absolutely necessary.
 6. When modifying a skill, preserve useful prior content and only change what improves performance.
+7. When the task requires the same transform over many files, prefer an available batch-equivalent tool over one-call-per-file loops whenever that reduces executor step pressure.
+8. Keep `allowed-tools` aligned with the exact tool names you instruct the executor to use, including any batch variants.
+9. You are not chatting with a human and you are not acting as a coding assistant with preambles or progress updates.
 
 Output rule:
 Return exactly one JSON object matching the task-specific request. Do not emit markdown fences.
+The first character of your reply must be `{{` and the last character must be `}}`.
+Never begin with prose such as "I'll", "I will", "Here is", or any explanation before the JSON object.

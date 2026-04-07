@@ -7,6 +7,7 @@ runs_*/
 runs_760/*
 !runs_760/start_gemma_vllm_env_gpu23.sh
 runtime_state/
+tmp/
 
 benchmark/out/
 out/

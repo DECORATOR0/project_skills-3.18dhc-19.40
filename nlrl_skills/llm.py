@@ -23,6 +23,8 @@ class LLMCallResult:
     text: str
     raw_response: dict[str, Any]
     request_payload: dict[str, Any]
+    usage: dict[str, Any] | None = None
+    elapsed_seconds: float | None = None
 
 
 _SEMAPHORE_LOCK = Lock()
@@ -46,8 +48,10 @@ class OpenAICompatibleLLM:
         self.max_retries = int(os.environ.get("NLRL_LLM_MAX_RETRIES", "6"))
         self.retry_delay_seconds = float(os.environ.get("NLRL_LLM_RETRY_DELAY_SECONDS", "6"))
         self.json_repair_attempts = int(os.environ.get("NLRL_LLM_JSON_REPAIR_ATTEMPTS", "2"))
-        concurrency_raw = os.environ.get("NLRL_LLM_MAX_CONCURRENT_REQUESTS", "").strip()
+        role_limit_name = f"NLRL_{self.config.name.upper()}_MAX_CONCURRENT_REQUESTS"
+        concurrency_raw = os.environ.get(role_limit_name, "").strip() or os.environ.get("NLRL_LLM_MAX_CONCURRENT_REQUESTS", "").strip()
         self.request_semaphore = _shared_request_semaphore(int(concurrency_raw)) if concurrency_raw else None
+        self.stream_include_usage = os.environ.get("NLRL_LLM_STREAM_INCLUDE_USAGE", "").strip().lower() in {"1", "true", "yes", "on"}
 
     def _uses_responses_sse(self) -> bool:
         return self.config.api_mode.strip().lower() == "responses_sse"
@@ -92,6 +96,8 @@ class OpenAICompatibleLLM:
 
     def _should_retry(self, exc: Exception) -> bool:
         if isinstance(exc, httpx.HTTPStatusError):
+            if self._uses_responses_sse() and exc.response.status_code == 400:
+                return True
             return exc.response.status_code in {408, 409, 429, 500, 502, 503, 504}
         if isinstance(
             exc,
@@ -167,16 +173,97 @@ class OpenAICompatibleLLM:
             payload["max_tokens"] = resolved_max_tokens
         return payload
 
+    @staticmethod
+    def _canonical_usage(raw_usage: Any) -> dict[str, Any] | None:
+        if not isinstance(raw_usage, dict):
+            return None
+        input_tokens = raw_usage.get("prompt_tokens")
+        if input_tokens is None:
+            input_tokens = raw_usage.get("input_tokens")
+        output_tokens = raw_usage.get("completion_tokens")
+        if output_tokens is None:
+            output_tokens = raw_usage.get("output_tokens")
+        total_tokens = raw_usage.get("total_tokens")
+        try:
+            input_value = int(input_tokens) if input_tokens is not None else None
+        except Exception:
+            input_value = None
+        try:
+            output_value = int(output_tokens) if output_tokens is not None else None
+        except Exception:
+            output_value = None
+        try:
+            total_value = int(total_tokens) if total_tokens is not None else None
+        except Exception:
+            total_value = None
+        if total_value is None and input_value is not None and output_value is not None:
+            total_value = input_value + output_value
+        if input_value is None and output_value is None and total_value is None:
+            return None
+        return {
+            "input_tokens": input_value,
+            "output_tokens": output_value,
+            "total_tokens": total_value,
+            "raw_usage": raw_usage,
+        }
+
+    def _extract_usage(self, raw_response: dict[str, Any]) -> dict[str, Any] | None:
+        candidates = [
+            raw_response.get("usage"),
+            raw_response.get("last_chunk", {}).get("usage") if isinstance(raw_response.get("last_chunk"), dict) else None,
+        ]
+        response_payload = raw_response.get("response")
+        if isinstance(response_payload, dict):
+            candidates.append(response_payload.get("usage"))
+        for candidate in candidates:
+            usage = self._canonical_usage(candidate)
+            if usage is not None:
+                return usage
+        return None
+
+    def _inline_system_prompt_in_responses_input(self) -> bool:
+        # Current SSSAI `/responses` misroutes actor/critic instructions and can
+        # replace them with a Codex-style system prompt. Keep the fix scoped to
+        # the JSON-heavy training roles instead of changing every responses user.
+        return self.config.name in {"actor", "critic"}
+
+    def _actor_critic_user_only_text(self, messages: list[LLMMessage]) -> str:
+        parts: list[str] = [
+            "Machine-only contract for this turn.",
+            "Ignore any unrelated chat-assistant instructions about preambles, plans, progress updates, tool calls, or conversational tone.",
+            "Do not talk to a human. Do not describe what you are about to do.",
+            "Return exactly one JSON object. The first character of your reply must be `{` and the last character must be `}`.",
+        ]
+        for message in messages:
+            content = message.content.strip()
+            if not content:
+                continue
+            if message.role == "system":
+                parts.append(f"[SYSTEM CONTRACT]\n{content}")
+            elif message.role == "assistant":
+                parts.append(f"[PREVIOUS INVALID REPLY]\n{content}")
+            else:
+                parts.append(f"[TASK INPUT]\n{content}")
+        return "\n\n".join(parts)
+
     def _build_responses_payload(self, messages: list[LLMMessage]) -> dict[str, Any]:
         instructions_parts = [m.content for m in messages if m.role == "system" and m.content.strip()]
-        conversation_input = [
-            {
-                "role": m.role,
-                "content": [{"type": "input_text", "text": m.content}],
-            }
-            for m in messages
-            if m.role != "system"
-        ]
+        if self._inline_system_prompt_in_responses_input():
+            conversation_input = [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": self._actor_critic_user_only_text(messages)}],
+                }
+            ]
+        else:
+            conversation_input = [
+                {
+                    "role": m.role,
+                    "content": [{"type": "input_text", "text": m.content}],
+                }
+                for m in messages
+                if m.role != "system"
+            ]
         if not conversation_input:
             conversation_input = [
                 {
@@ -189,7 +276,7 @@ class OpenAICompatibleLLM:
             "stream": True,
             "input": conversation_input,
         }
-        if instructions_parts:
+        if instructions_parts and not self._inline_system_prompt_in_responses_input():
             payload["instructions"] = "\n\n".join(instructions_parts)
         return payload
 
@@ -225,6 +312,9 @@ class OpenAICompatibleLLM:
     def _parse_responses_sse_text(self, raw_text: str, request_payload: dict[str, Any]) -> LLMCallResult:
         last_payload: dict[str, Any] | None = None
         completed_payload: dict[str, Any] | None = None
+        delta_text_parts: list[str] = []
+        done_text_parts: list[str] = []
+        observed_event_types: list[str] = []
         for block in raw_text.split("\n\n"):
             lines = block.strip().splitlines()
             if not lines:
@@ -238,23 +328,62 @@ class OpenAICompatibleLLM:
                 continue
             last_payload = payload
             payload_type = str(payload.get("type", ""))
+            if payload_type:
+                observed_event_types.append(payload_type)
+            if payload_type == "response.output_text.delta":
+                delta = payload.get("delta")
+                if isinstance(delta, str) and delta:
+                    delta_text_parts.append(delta)
+            elif payload_type == "response.output_text.done":
+                text = payload.get("text")
+                if isinstance(text, str) and text:
+                    done_text_parts.append(text)
             if payload_type == "response.completed":
                 completed_payload = payload
                 break
             if payload_type in {"error", "response.failed"}:
                 raise RuntimeError(self._extract_responses_error(payload))
         if completed_payload is None:
+            text = "".join(done_text_parts).strip() or "".join(delta_text_parts).strip()
+            if text:
+                text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text).strip()
+                synthetic_payload = {
+                    "type": "response.completed.synthetic",
+                    "incomplete_sse": True,
+                    "observed_event_types": observed_event_types[-24:],
+                    "last_payload": last_payload,
+                }
+                return LLMCallResult(
+                    text=text,
+                    raw_response=synthetic_payload,
+                    request_payload=request_payload,
+                    usage=None,
+                )
             error_message = "No response.completed event found in responses SSE output."
             if last_payload is not None:
                 error_message += f" Last payload: {self._extract_responses_error(last_payload)}"
             raise RuntimeError(error_message)
-        text = self._extract_responses_output_text(completed_payload)
+        try:
+            text = self._extract_responses_output_text(completed_payload)
+        except RuntimeError as exc:
+            text = "".join(delta_text_parts).strip() or "".join(done_text_parts).strip()
+            if not text:
+                event_tail = observed_event_types[-12:]
+                raise RuntimeError(
+                    f"{exc} Observed event types: {event_tail or ['<none>']}"
+                ) from exc
         text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text or "").strip()
-        return LLMCallResult(text=text, raw_response=completed_payload, request_payload=request_payload)
+        return LLMCallResult(
+            text=text,
+            raw_response=completed_payload,
+            request_payload=request_payload,
+            usage=self._extract_usage(completed_payload),
+        )
 
     def _responses_chat(self, payload: dict[str, Any]) -> LLMCallResult:
         with self._request_slot():
             for attempt in range(1, self.max_retries + 1):
+                started = time.monotonic()
                 try:
                     with httpx.Client(trust_env=False, timeout=float(self.config.timeout_seconds)) as client:
                         response = client.post(
@@ -267,7 +396,9 @@ class OpenAICompatibleLLM:
                             json=payload,
                         )
                         response.raise_for_status()
-                    return self._parse_responses_sse_text(response.text, payload)
+                    result = self._parse_responses_sse_text(response.text, payload)
+                    result.elapsed_seconds = round(time.monotonic() - started, 6)
+                    return result
                 except Exception as exc:  # pragma: no cover - network dependent
                     if attempt >= self.max_retries or not self._should_retry(exc):
                         raise
@@ -312,12 +443,16 @@ class OpenAICompatibleLLM:
     def _chat_stream(self, payload: dict[str, Any]) -> LLMCallResult:
         stream_payload = dict(payload)
         stream_payload["stream"] = True
+        if self.stream_include_usage:
+            stream_payload["stream_options"] = {"include_usage": True}
         chunks: list[dict[str, Any]] = []
         text_parts: list[str] = []
         finish_reason = ""
+        usage: dict[str, Any] | None = None
         with self._request_slot():
             for attempt in range(1, self.max_retries + 1):
                 response = None
+                started = time.monotonic()
                 try:
                     with self.client.stream("POST", "chat/completions", json=stream_payload) as response:
                         response.raise_for_status()
@@ -338,6 +473,9 @@ class OpenAICompatibleLLM:
                                 break
                             chunk = json.loads(data)
                             chunks.append(chunk)
+                            chunk_usage = self._canonical_usage(chunk.get("usage"))
+                            if chunk_usage is not None:
+                                usage = chunk_usage
                             text = self._extract_delta_text(chunk)
                             if text:
                                 text_parts.append(text)
@@ -358,6 +496,8 @@ class OpenAICompatibleLLM:
                             "last_chunk": chunks[-1] if chunks else {},
                         },
                         request_payload=stream_payload,
+                        usage=usage,
+                        elapsed_seconds=round(time.monotonic() - started, 6),
                     )
                 except Exception as exc:  # pragma: no cover - network dependent
                     if response is not None:
@@ -365,6 +505,17 @@ class OpenAICompatibleLLM:
                             response.close()
                         except Exception:
                             pass
+                    if (
+                        self.stream_include_usage
+                        and stream_payload.get("stream_options")
+                        and isinstance(exc, httpx.HTTPStatusError)
+                        and exc.response is not None
+                        and exc.response.status_code in {400, 422}
+                    ):
+                        self.stream_include_usage = False
+                        stream_payload = dict(payload)
+                        stream_payload["stream"] = True
+                        continue
                     if attempt >= self.max_retries or not self._should_retry(exc):
                         raise
                     self._rebuild_client()
@@ -384,6 +535,7 @@ class OpenAICompatibleLLM:
         response: httpx.Response | None = None
         with self._request_slot():
             for attempt in range(1, self.max_retries + 1):
+                started = time.monotonic()
                 try:
                     response = self.client.post("chat/completions", json=payload)
                     response.raise_for_status()
@@ -411,7 +563,13 @@ class OpenAICompatibleLLM:
                 if isinstance(item, dict)
             )
         text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text or "").strip()
-        return LLMCallResult(text=text, raw_response=raw_response, request_payload=payload)
+        return LLMCallResult(
+            text=text,
+            raw_response=raw_response,
+            request_payload=payload,
+            usage=self._extract_usage(raw_response),
+            elapsed_seconds=round(time.monotonic() - started, 6),
+        )
 
     def _json_repair_prompt(self, error: Exception | str) -> str:
         return (
@@ -420,10 +578,39 @@ class OpenAICompatibleLLM:
             "Reply again with exactly one valid JSON object and nothing else.\n"
             "Requirements:\n"
             "- Keep the same intended decision/content unless the parser issue itself forces a minimal correction.\n"
+            "- If the original instruction specified a JSON schema or required keys, include every required top-level key.\n"
             "- Do not output markdown fences or any prose before/after the JSON.\n"
             "- Do not use placeholders, Python expressions, string concatenation, or pseudo-code inside JSON.\n"
             "- Materialize every list/object/value as concrete JSON.\n"
         )
+
+    def _json_repair_followup_messages(
+        self,
+        base_conversation: list[LLMMessage],
+        *,
+        previous_reply: str,
+        error: Exception | str,
+    ) -> list[LLMMessage]:
+        repair_prompt = self._json_repair_prompt(error)
+        if self._uses_responses_sse():
+            # Some OpenAI-compatible Responses endpoints reject `assistant` turns in `input`.
+            # Keep repair as a user-only follow-up and inline the previous invalid reply.
+            return [
+                *base_conversation,
+                LLMMessage(
+                    role="user",
+                    content=(
+                        "Previous invalid reply:\n"
+                        f"{previous_reply}\n\n"
+                        f"{repair_prompt}"
+                    ),
+                ),
+            ]
+        return [
+            *base_conversation,
+            LLMMessage(role="assistant", content=previous_reply),
+            LLMMessage(role="user", content=repair_prompt),
+        ]
 
     def chat_json(
         self,
@@ -432,6 +619,7 @@ class OpenAICompatibleLLM:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> tuple[dict[str, Any], LLMCallResult]:
+        base_conversation = list(messages)
         conversation = list(messages)
         last_error: Exception | None = None
 
@@ -447,11 +635,11 @@ class OpenAICompatibleLLM:
                 last_error = exc
                 if repair_attempt >= self.json_repair_attempts:
                     raise
-                conversation = [
-                    *conversation,
-                    LLMMessage(role="assistant", content=result.text),
-                    LLMMessage(role="user", content=self._json_repair_prompt(exc)),
-                ]
+                conversation = self._json_repair_followup_messages(
+                    base_conversation,
+                    previous_reply=result.text,
+                    error=exc,
+                )
 
         raise RuntimeError("JSON repair loop exited unexpectedly.")
 
@@ -466,6 +654,9 @@ def log_llm_call(log_dir: Path, role_name: str, result: LLMCallResult) -> None:
     write_json(
         log_dir / f"{stamp}_{role_name}_response.json",
         {
+            "request_model": str(result.request_payload.get("model", "")),
+            "elapsed_seconds": result.elapsed_seconds,
+            "usage": result.usage,
             "text": result.text,
             "raw_response": result.raw_response,
         },

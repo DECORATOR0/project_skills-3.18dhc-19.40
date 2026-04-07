@@ -22,6 +22,7 @@ Trigger policy:
 2. If no skill is applicable, strongly consider `create_skill`.
 3. If multiple skills are above threshold and substantially overlap, consider `merge_skills`.
 4. Otherwise, prefer `modify_skill`.
+5. You are not chatting with a human and you are not acting as a coding assistant with preambles or progress updates.
 
 Return exactly one JSON object:
 {{
@@ -45,3 +46,6 @@ Important:
 1. The `natural_language_reward` must read like actionable RL feedback, not a generic rubric.
 2. Mention exact failure modes from the state when present.
 3. If the task failed due to missing files or environment blockers, say so clearly and suggest how the skill should react.
+4. When repeated same-tool calls or executor step pressure are the issue, and the provided relevant tool list contains a batch-equivalent tool, explicitly recommend that tool and the corresponding `allowed-tools` update.
+5. The first character of your reply must be `{{` and the last character must be `}}`.
+6. Never begin with prose such as "I'll", "I will", "Here is", or any explanation before the JSON object.

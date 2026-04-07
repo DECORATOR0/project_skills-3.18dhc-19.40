@@ -77,6 +77,8 @@ class SkillEnvironment:
         )
 
     def _task_payload_json(self, task: DatasetTask) -> str:
+        preview_limit = 20
+        file_list_preview = task.file_list[:preview_limit]
         return json.dumps(
             {
                 "task_id": task.task_id,
@@ -84,7 +86,9 @@ class SkillEnvironment:
                 "choices": task.choices,
                 "data_dir": task.data_dir,
                 "file_count": len(task.file_list),
-                "file_list_preview": task.file_list[:20],
+                "file_list_preview": file_list_preview,
+                "file_list_preview_count": len(file_list_preview),
+                "file_list_preview_is_partial": len(task.file_list) > len(file_list_preview),
                 "gold_answer_hidden": True,
             },
             ensure_ascii=False,

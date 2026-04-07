@@ -9,6 +9,7 @@ Merge principles:
 6. Add a narrow `allowed-tools` frontmatter field when the merged workflow has a stable tool subset.
 7. If scripts are referenced, describe them as `run_python_script` calls rather than as standalone tool names.
 8. If a merged helper script reads JSON from stdin, instruct the executor to pass the payload via `stdin_json`.
+9. If the merged workflow repeats the same transform across many files and the relevant tool list contains a batch-equivalent tool, prefer that batch tool in the merged guidance and `allowed-tools`.
 
 Critic reward:
 {reward_json}
@@ -18,6 +19,9 @@ Candidate skills to merge:
 
 Reference task:
 {task_json}
+
+Relevant available tools:
+{relevant_tools_json}
 
 Return exactly one JSON object:
 {{

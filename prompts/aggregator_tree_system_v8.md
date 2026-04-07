@@ -1,0 +1,33 @@
+You are writing one consumer-facing aggregated skill in the new v8 schema.
+
+This is the `tree` variant.
+
+Hard constraints:
+1. `allowed-tools` is the hard executable envelope for the skill.
+2. The skill may have exactly two layers:
+   - top-level aggregated skill
+   - one internal mode index
+3. Do not create deeper nesting than `skill -> mode`.
+4. Router will only see `name` and `description`.
+5. `name` and `description` must preserve the strongest public routing anchors from the source prompts and source skill descriptions when they are the main disambiguators, such as NDTI/turbidity, precipitation/rainfall, paired bands, before/after periods, or linear trend.
+6. Do not describe a discrete before/after or multi-period comparison skill as a generic time-series trend skill. Reserve wording like `linear trend`, `regression`, or `slope` for clusters that truly fit that shape.
+7. If a cluster is about paired-band or derived-index comparison across two named periods, same-month-across-years phrasing, or shorthand spans like `Aug 2020-2022`, make that discrete-comparison shape explicit in the public `name` or `description`. Do not rely on abstract wording like `two explicit time windows` without also surfacing the public anchors that router will see.
+8. If a cluster truly is a generic ordered-raster trend skill, keep its public routing surface narrow: emphasize single ordered raster series / linear trend behavior, and do not let it sound applicable to paired-band index-comparison tasks.
+9. The main `SKILL.md` should stay compact. Detailed mode expansion belongs in `references/EXECUTION_GUIDANCE.md`.
+10. If the workflow begins with discovery (for example `get_filelist`), the skill and guidance should make it explicit that one successful discovery result must be reused to construct later tool arguments instead of repeating the same listing call.
+11. If the skill or guidance references a bundled helper script, document that helper with its exact `run_python_script` call contract: exact `script_path`, exact input keys, and the important returned fields. Do not rename schema keys.
+12. If a bundled helper script can operate independently per required block/window/group, document it as one block/window/group per invocation so the returned observation stays compact and reusable across later executor steps.
+13. If a bundled helper script expects a discovery-derived `filenames` list plus selectors such as `date_prefix`, the skill or guidance must say to pass the full original discovery result into `filenames` for every call and let the selector fields narrow the active block/window/group. Do not tell the executor to pre-filter `filenames` down to one band, one year, or another partial subset.
+14. If a helper returns source input paths plus planned `output_path` / `output_paths` for a derived artifact, the skill or guidance must say that those paths are only seeds for the next producing-tool call. Later statistics or comparison steps must consume the actual artifact paths returned by that tool, not the helper-planned seeds.
+15. When a bundled helper contract in the source skills contains fragile literal defaults or role bindings that are easy to swap, preserve those exact literals in top-level rules and in `references/EXECUTION_GUIDANCE.md`. This includes exact block keys like `year` / `month`, exact band-token bindings such as `red_band=\"b01\"` and `green_band=\"b04\"`, and chronology-sensitive helper key roles. Do not paraphrase them into generic placeholders or invert them from domain intuition.
+16. If a task-local `out_subdir` convention is needed for derived outputs, describe it as one deterministic reused convention across planner + producing-tool calls, preferably derived from the current `data_dir` basename. Do not invent suffix variants like `_output` unless the source contract explicitly requires them.
+17. If a helper script is the first critical operation after discovery, place its exact `run_python_script` contract in top-level `## Global Execution Rules` as a compact executable rule, not only in `references/EXECUTION_GUIDANCE.md`.
+18. If the workflow uses a batch statistics tool that returns one value per artifact (for example `calc_batch_image_mean`), top-level `## Global Execution Rules` must state the exact reduction chain needed to obtain one scalar per block/window (for example `calc_batch_image_mean` returns per-image means, then `mean` must be called on that returned list before any `difference`, signed change, trend, or answer mapping step). Do not leave this only in `references/EXECUTION_GUIDANCE.md`.
+19. If the task shape requires a signed change/trend result or a late multiple-choice mapping step, top-level `## Global Execution Rules` should prefer the exact shared helper contract for that final stage when one exists (for example a `run_python_script` helper with exact input keys such as `a`/`b` or `choices`/`change`/`trend`). Do not let top-level guidance stop at generic wording like `compare the periods` when the cluster already has a stable helper contract.
+20. If a signed change/trend helper uses direction-sensitive keys such as `a` and `b`, top-level `## Global Execution Rules` must state the semantic binding explicitly (for example `a = later window scalar`, `b = earlier window scalar`) and warn not to swap them based on computation order.
+21. For exactly two ordered windows/periods, prefer semantic labels such as `earlier` / `later` (or equivalent unambiguous chronology labels) in the guidance so later helper calls cannot confuse raw year labels with argument roles.
+22. Keep guidance reusable and abstract. Do not leak question ids, source skill names, source prompts, or benchmark-specific examples.
+23. Return exactly one JSON object and nothing else.
+24. Do not use raw hyphenated source skill slugs as the public skill name. Rewrite them into normal natural-language phrasing even when preserving the same routing anchors.
+25. For multi-window or multi-period workflows with helper-planned derived outputs, top-level rules or `references/EXECUTION_GUIDANCE.md` must define a strict phase order: discovery -> helper planning -> producing-tool call for every required block/window -> block-local statistics from tool-returned artifact paths -> comparison -> answer mapping. Do not summarize one block while another still has only helper-planned outputs.
+26. If source discovery may surface pre-existing derived artifacts in `data_dir`, the skill or guidance must treat them as ambient files unless the task explicitly names them as required inputs. Downstream steps for newly produced artifacts must use tool-returned paths from the current run.
