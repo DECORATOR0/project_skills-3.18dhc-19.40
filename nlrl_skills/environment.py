@@ -41,7 +41,8 @@ class SkillEnvironment:
             config.executor,
             config.prompt_root,
             self.toolbox,
-            max_context_chars=config.runtime.max_context_chars,
+            executor_total_token_budget=config.runtime.executor_total_token_budget,
+            executor_tokenizer_path=config.runtime.executor_tokenizer_path,
         )
 
     def _pick_active_skill(self, headers: list[SkillHeader], router_result: RouterResult) -> SkillDetail | None:

@@ -56,7 +56,8 @@
     "max_actor_steps": 8,
     "max_iterations_per_task": 10,
     "skill_count_limit": 6,
-    "max_context_chars": 48000,
+    "executor_total_token_budget": 32768,
+    "executor_tokenizer_path": "/data/xsy/codes/checkpoints/Qwen3-8B",
     "python_executable": "/data/xsy/miniconda3/envs/earth-bench-skill-eval/bin/python",
     "shell_program": "/bin/bash"
   }

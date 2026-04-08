@@ -832,3 +832,175 @@ metadata:
   - 文档更新
   - `router` 的 skill-name 归一化修复
 - 其余工作区改动保持原样，不在这里强行捆进一次大提交。
+
+#### 8.1.16 2026-04-07~2026-04-08 `executor` 去限后重跑 `formal60`：`32K token budgeting`、`smoke`、`flat/tree` 收口
+
+这一节把上一小节的“错误观察速记”补成完整收口。范围只覆盖 executor 上下文预算修正与重跑，不改 skill 文案、不改 prompt 语义、不改聚合逻辑。
+
+**先把根因说死：旧 executor 不是 token budget，而是字符级近失忆裁剪**
+
+- 理想的 multi-step executor 记忆链，本来应该尽量保住：
+  - `system`
+  - `user(task payload)`
+  - `assistant(step1 tool call)`
+  - `user(step1 tool result)`
+  - `assistant(step2 tool call)`
+  - `user(step2 tool result)`
+  - ...
+- 旧实现实际是三段式字符裁剪：
+  - 先把大多数旧消息截到 `1600 chars`
+  - 还不够就把 step 历史进一步压到 `600 chars`
+  - 再不够就按 `_fit_messages_to_budget` 直接丢整条旧消息，只优先保前两条消息
+- 当前 `nlrl_skills` 运行时字段是 `max_context_chars=48000`，不是 token。
+- 对这批几乎全英文 + JSON 的 executor prompt，`48000 chars` 大致只相当于 `12k~16k token`。也就是说，问题不是“明明给了 48k token 还不够”，而是 wrapper 在更上层先做了一次更保守的字符级裁剪。
+- 代表例子就是 `flat task_41_190`：
+  - 旧 run 的 `step2 request` 里只剩 `system + user` 两条消息
+  - 对应文件：`runs/v8_fastline_merged60_20260407_r36/formal60/eval_runs_flat/formal60_flat_eval/task_41_190/env/executor/executor_steps/20260407T115502Z_executor_step_2_request.json`
+  - 其 `step2 response` 里 `input_tokens=12251`
+- 这解释了为什么 `flat vision` 会大量退化成 `get_filelist x20` / `SM3Det x15~20` 这类“重复最安全的第一步”：
+  - 不是单纯因为 vision skill 差
+  - 而是这一版 `flat vision` super-skill 本身更肥，前两条消息就接近吃满旧字符预算
+  - executor 到 step2 后几乎已经把上一轮 `assistant/tool result` 忘掉了，属于近似失忆
+- 这里还要单独记住一个排除项：
+  - 这批 `qwen3-8b` 是开了 thinking 的
+  - 所以这波问题不能简单归因到“8b 没思考”
+
+**这次落地的代码 / 配置改动**
+
+- `nlrl_skills/agent_loop.py`
+  - 去掉旧的 `max_context_chars` 裁剪链，改成基于 tokenizer 的 prompt budgeting
+  - 采用按 turn 保留历史的方式：尽量保整轮 `assistant + user(tool result)`，预算不够时再对单 turn 做 token 级截断
+  - tokenizer 固定用本地 `Qwen3-8B`，并加缓存与 `Lock`
+- `nlrl_skills/config.py`
+  - 新增运行时字段：
+    - `executor_total_token_budget = 32768`
+    - `executor_tokenizer_path = /data/xsy/codes/checkpoints/Qwen3-8B`
+  - 读取 config 时主动丢弃旧 `max_context_chars`
+- `nlrl_skills/environment.py`
+  - 把 executor token budget / tokenizer path 显式传给 `JSONToolAgent`
+- `nlrl_skills/llm.py`
+  - 新增 `resolve_max_tokens()`，让 input budget 能按真实 `executor.max_tokens` 反推
+- `scripts/orchestrate_v8_fastline.py`
+  - 把新的 runtime 字段注入 eval config / pipeline context
+- `configs/system.eval.local_qwen3_8b_stream140.json`
+- `configs/system.eval.local_qwen3_8b_stream140_gpu0_isolated.json`
+  - 都落成：
+    - `executor_total_token_budget = 32768`
+    - `executor.max_tokens = 8192`
+    - 所以 executor 可用 input budget = `32768 - 8192 = 24576`
+    - `executor_tokenizer_path = /data/xsy/codes/checkpoints/Qwen3-8B`
+- 另外补了一个只基于既有聚合库重跑 eval 的脚本：
+  - `scripts/rerun_v8_eval_from_existing_agg.py`
+
+**smoke 先证明确实不是“改了但没生效”**
+
+- smoke run 目录：
+  - `runs/v8_executor_token_budget_smoke_20260408_r2`
+- 结果：
+  - `flat 1/1`
+  - `tree 1/1`
+- 更关键的是 step2 消息链恢复了：
+  - 旧 `flat task_41_190 step2`：`2` 条消息，角色是 `system,user`
+  - 新 `flat smoke task_01_190 step2`：`4` 条消息，角色是 `system,user,assistant,user`
+  - 新 `tree smoke task_01_190 step2`：`4` 条消息，角色是 `system,user,assistant,user`
+- 对应 step2 `input_tokens`：
+  - 旧 `flat`：`12251`
+  - 新 `flat smoke`：`12699`
+  - 新 `tree smoke`：`11065`
+- 这说明问题不在“token 数绝对太大”，而在旧字符裁剪链会过早把真正有用的 multi-step 历史踢掉；改成 token budgeting 后，step2 的记忆链可以正常保住。
+
+**`formal60` 重跑时间线**
+
+- `r3`
+  - 目录：`runs/v8_executor_token_budget_formal60_20260408_r3`
+  - 第一轮正式重跑在 tokenizer 并发导入处炸掉
+  - 随后把导入固定成 `from transformers.models.auto.tokenization_auto import AutoTokenizer`，并给 tokenizer cache/load 加 `Lock`
+- `r4`
+  - 目录：`runs/v8_executor_token_budget_formal60_20260408_r4`
+  - 保持 `60` 并发继续冲，结果出现了成批 `429 Too Many Requests`
+  - 量级不是零星噪音，而是明确的 provider capacity 边界：
+    - `flat`：`33` 个 task 已完成，`5` 个 task 写出带 `429` 的失败记录
+    - `tree`：`33` 个 task 已完成，`6` 个 task 写出带 `429` 的失败记录
+  - 这一现象本身是有价值的，不只是“倒霉回滚”：
+    - `32K token budgeting` 本身已经工作
+    - 但在这组 prompt 体积 + thinking + executor 多步工作负载下，provider 侧并不能稳定扛住 `c60`
+    - 因而 `60 -> 20` 的回退不是拍脑袋，而是一次被实测 `429` 逼出来的运营边界确认
+- `r5_c20`
+  - 目录：`runs/v8_executor_token_budget_formal60_20260408_r5_c20`
+  - 按 `20` 并发重跑后，`flat` 正式汇总顺利产出
+  - `tree` 只剩 `q42` 长尾卡死；单题 retry 目录是 `runs/v8_executor_token_budget_formal60_20260408_r5_c20_tree_task42_retry`
+  - 该 retry 仍反复卡在 helper contract 修补回路里；按操作指令，最后把 `q42` 记为“失败中断”并补写 root summary
+  - `q42` 的 failure 原文是：
+    - `Interrupted after prolonged single-task retry for q42 by operator instruction; counted as failed interruption.`
+
+**最终结果**
+
+- `flat` 正式结果（`r5_c20`）：
+  - 成功 `24 / 60`
+  - `ACC 0.4000`
+  - `TAO 0.6700`
+  - `TIO 0.6187`
+  - `TEM 0.3287`
+  - `Parameters 0.2364`
+  - `Efficiency 1.4903`
+- 相对 `8.1.15` 的旧 baseline（成功 `15 / 60`，`ACC 0.2500`，`TAO 0.5372`，`TIO 0.4602`）：
+  - 成功数 `+9`
+  - `ACC +0.1500`
+  - `TAO +0.1328`
+  - `TIO +0.1585`
+- 同口径扫全评测目录下全部 `*_response.json` 后，`flat` 总 token 用量也明显下降：
+  - 旧：`9,090,910`
+  - 新：`6,839,921`
+  - 下降 `2,250,989`，约 `-24.8%`
+
+- `tree` 正式结果（`r5_c20`，其中 `q42` 被按失败中断计入）：
+  - 成功 `25 / 60`
+  - `ACC 0.4167`
+  - `TAO 0.6722`
+  - `TIO 0.5901`
+  - `TEM 0.2619`
+  - `Parameters 0.2163`
+  - `Efficiency 1.3472`
+- 相对 `8.1.15` 的旧 baseline（成功 `18 / 60`，`ACC 0.3000`，`TAO 0.6836`，`TIO 0.6298`）：
+  - 成功数 `+7`
+  - `ACC +0.1167`
+  - `TAO -0.0114`
+  - `TIO -0.0397`
+- 这里不要过度解读 `tree` 的 token 总量：
+  - 官方 `r5_c20` 已落盘部分本身就是 `6,768,556`
+  - 之后为 `q42` 又单开 retry，多消耗了 `219,796`
+  - 所以这轮 `tree` 的使用量并不是一组完全干净的 apples-to-apples 对比；它夹带了一个被人工终止的长尾 retry
+
+**这轮最重要的结果修正**
+
+- `flat vision` 不再是 “`0 / 20` 全灭”：
+  - `8.1.15`：`0 / 20`
+  - 这轮：`10 / 20`
+- `tree vision` 也有改善：
+  - `8.1.15`：`6 / 21`
+  - 这轮：`9 / 21`
+- 所以更准确的结论是：
+  - executor 记忆链修正，确实实质性帮助了 vision super-skill
+  - 尤其 `flat vision` 从“近乎完全失效”拉回到了“至少有一半题能做出来”
+  - 但它还没有被彻底解决；vision 仍然是后续最值得继续打磨的大簇
+
+**这轮应该留下来的工程结论**
+
+- `32K token budgeting` 这条修正是有效的，且不是只在 smoke 上有效，正式 `flat` 的整体结果和 token 成本都已经给出正反馈。
+- `60` 并发打到 `429` 这件事本身有研究价值：
+  - 它表明瓶颈已经从“wrapper 过早失忆”转成“provider / QPS / capacity 在当前工作负载下扛不住”
+  - 也就是说，去限后不是“所有问题都解决了”，而是把真正的服务侧边界暴露了出来
+- `tree` 这轮也有提升，但因为夹带 `q42` 的长尾 retry 与人工失败中断，当前更适合把它当成“可用但仍需继续清障”的结果，而不是过度庆祝。
+
+**关键产物目录**
+
+- `smoke`
+  - `runs/v8_executor_token_budget_smoke_20260408_r2`
+- `formal r3`
+  - `runs/v8_executor_token_budget_formal60_20260408_r3`
+- `formal r4`（`c60`，出现批量 `429`）
+  - `runs/v8_executor_token_budget_formal60_20260408_r4`
+- `formal r5_c20`（正式结果）
+  - `runs/v8_executor_token_budget_formal60_20260408_r5_c20`
+- `tree q42` 单题 retry
+  - `runs/v8_executor_token_budget_formal60_20260408_r5_c20_tree_task42_retry`

@@ -42,7 +42,8 @@ class RuntimeConfig:
     max_actor_steps: int = 8
     max_iterations_per_task: int = 10
     skill_count_limit: int = 6
-    max_context_chars: int = 16384
+    executor_total_token_budget: int = 32768
+    executor_tokenizer_path: str = "/data/xsy/codes/checkpoints/Qwen3-8B"
     python_executable: str = "python"
     shell_program: str = "powershell"
 
@@ -170,6 +171,7 @@ def _llm_from_dict(name: str, data: dict[str, Any]) -> LLMConfig:
 def load_system_config(path: str | Path) -> SystemConfig:
     raw = read_json(Path(path))
     runtime_raw = dict(raw.get("runtime", {}))
+    runtime_raw.pop("max_context_chars", None)
     runtime_env_overrides = {
         "max_router_candidates": _env_override("NLRL_RUNTIME_MAX_ROUTER_CANDIDATES"),
         "skill_match_threshold": _env_override("NLRL_RUNTIME_SKILL_MATCH_THRESHOLD"),
@@ -177,7 +179,8 @@ def load_system_config(path: str | Path) -> SystemConfig:
         "max_actor_steps": _env_override("NLRL_RUNTIME_MAX_ACTOR_STEPS"),
         "max_iterations_per_task": _env_override("NLRL_RUNTIME_MAX_ITERATIONS_PER_TASK"),
         "skill_count_limit": _env_override("NLRL_RUNTIME_SKILL_COUNT_LIMIT"),
-        "max_context_chars": _env_override("NLRL_RUNTIME_MAX_CONTEXT_CHARS"),
+        "executor_total_token_budget": _env_override("NLRL_RUNTIME_EXECUTOR_TOTAL_TOKEN_BUDGET"),
+        "executor_tokenizer_path": _env_override("NLRL_RUNTIME_EXECUTOR_TOKENIZER_PATH"),
         "python_executable": _env_override("NLRL_RUNTIME_PYTHON_EXECUTABLE"),
         "shell_program": _env_override("NLRL_RUNTIME_SHELL_PROGRAM"),
     }
@@ -192,7 +195,7 @@ def load_system_config(path: str | Path) -> SystemConfig:
             "max_actor_steps",
             "max_iterations_per_task",
             "skill_count_limit",
-            "max_context_chars",
+            "executor_total_token_budget",
         }:
             runtime_raw[key] = int(value)
         else:

@@ -25,6 +25,16 @@ CONFIG_ROOT = PROJECT_ROOT / "configs"
 DEFAULT_API_INFO_PATH = Path("/data/xsy/skill-pool/API说明/最新api说明.txt")
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    return int(raw) if raw else default
+
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.environ.get(name, "").strip()
+    return raw or default
+
+
 def _available_configs() -> dict[str, Path]:
     configs: dict[str, Path] = {}
     for path in sorted(CONFIG_ROOT.glob("*.json")):
@@ -105,6 +115,9 @@ def _build_v8_config(
     skill_library_root: Path,
     experience_buffer_path: Path,
 ) -> SystemConfig:
+    executor_max_tokens = _env_int("NLRL_EXECUTOR_MAX_TOKENS", 8192)
+    executor_total_token_budget = _env_int("NLRL_RUNTIME_EXECUTOR_TOTAL_TOKEN_BUDGET", 32768)
+    executor_tokenizer_path = _env_str("NLRL_RUNTIME_EXECUTOR_TOKENIZER_PATH", "/data/xsy/codes/checkpoints/Qwen3-8B")
     return clone_system_config(
         base_config,
         router={
@@ -123,7 +136,7 @@ def _build_v8_config(
             "timeout_seconds": 300,
             "enable_thinking": True,
             "stream": True,
-            "max_tokens": 8192,
+            "max_tokens": executor_max_tokens,
         },
         paths={
             "run_root": run_root,
@@ -131,7 +144,8 @@ def _build_v8_config(
             "experience_buffer_path": experience_buffer_path,
         },
         runtime={
-            "max_context_chars": 48000,
+            "executor_total_token_budget": executor_total_token_budget,
+            "executor_tokenizer_path": executor_tokenizer_path,
         },
     )
 
@@ -409,6 +423,8 @@ def main() -> None:
             "api_info_path": str(parsed.api_info_path),
             "qwen_base_url": qwen_profile["base_url"],
             "qwen_model": qwen_profile["model"],
+            "executor_total_token_budget": 32768,
+            "executor_tokenizer_path": "/data/xsy/codes/checkpoints/Qwen3-8B",
             "train_concurrency": parsed.train_concurrency,
             "aggregation_concurrency": parsed.aggregation_concurrency,
             "eval_concurrency": parsed.eval_concurrency,

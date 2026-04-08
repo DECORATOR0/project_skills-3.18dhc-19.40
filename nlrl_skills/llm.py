@@ -153,6 +153,10 @@ class OpenAICompatibleLLM:
             return 8192
         return max_tokens
 
+    def resolve_max_tokens(self, max_tokens: int | None = None) -> int | None:
+        resolved = self.config.max_tokens if max_tokens is None else max_tokens
+        return self._apply_model_limits(max_tokens=resolved)
+
     def _build_payload(
         self,
         messages: list[LLMMessage],
@@ -167,8 +171,7 @@ class OpenAICompatibleLLM:
         }
         if self._supports_enable_thinking_flag() and self.config.enable_thinking is not None:
             payload["enable_thinking"] = self.config.enable_thinking
-        resolved_max_tokens = self.config.max_tokens if max_tokens is None else max_tokens
-        resolved_max_tokens = self._apply_model_limits(max_tokens=resolved_max_tokens)
+        resolved_max_tokens = self.resolve_max_tokens(max_tokens=max_tokens)
         if resolved_max_tokens is not None:
             payload["max_tokens"] = resolved_max_tokens
         return payload
