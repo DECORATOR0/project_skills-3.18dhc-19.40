@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -17,6 +18,7 @@ from .skill_aggregator import (
     _assert_no_consumer_leakage,
     _build_core_guidance,
     _build_pattern_rows,
+    _find_consumer_leakage_markers,
     _leakage_markers,
     _load_detail_from_skill_dir,
     _render_skill_markdown,
@@ -214,6 +216,61 @@ def _collect_shared_resource_bundle(sources: list[ClusterSource]) -> tuple[dict[
     return bundled, sorted(conflicts)
 
 
+def _filter_public_resource_bundle(
+    bundled: dict[str, str],
+    *,
+    markers: list[str],
+) -> tuple[dict[str, str], list[str]]:
+    public_bundle: dict[str, str] = {}
+    excluded_paths: list[str] = []
+    for relative_path, content in bundled.items():
+        if _find_consumer_leakage_markers(relative_path, markers=markers):
+            excluded_paths.append(relative_path)
+            continue
+        if _find_consumer_leakage_markers(content, markers=markers):
+            excluded_paths.append(relative_path)
+            continue
+        public_bundle[relative_path] = content
+    return public_bundle, sorted(excluded_paths)
+
+
+def _prompt_visible_resources(source: ClusterSource, *, public_resource_paths: set[str]) -> list[str]:
+    return [relative_path for relative_path in source.detail.resources if relative_path in public_resource_paths]
+
+
+def _aggregation_feedback_suffix(
+    error: Exception,
+    *,
+    markers: list[str],
+    skill_md: str | None,
+    guidance_md: str,
+) -> str:
+    leaked_markers: list[str] = []
+    if skill_md:
+        leaked_markers.extend(_find_consumer_leakage_markers(skill_md, markers=markers))
+    if guidance_md:
+        leaked_markers.extend(_find_consumer_leakage_markers(guidance_md, markers=markers))
+    leaked_markers = list(dict.fromkeys(leaked_markers))
+    leaked_marker_preview = leaked_markers[:8]
+    lines = [
+        "",
+        "",
+        "Previous output failed validation and must be regenerated from scratch.",
+        f"Validation error: {error}",
+    ]
+    if leaked_marker_preview:
+        lines.append(f"Leaked markers detected: {json.dumps(leaked_marker_preview, ensure_ascii=False)}")
+    lines.extend(
+        [
+            "Do not expose benchmark/internal identifiers anywhere in `name`, `description`, `skill_md`, `execution_guidance_md`, or `summary`.",
+            "Only reference helper scripts or references that appear in `cluster_json.shared_resource_candidates`.",
+            "If a source-only helper path or phrase contains question-specific markers, replace it with generic consumer-facing wording instead of repeating it verbatim.",
+            "Return a complete fresh JSON object that follows the requested schema.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _augment_routing_surface(
     *,
     name: str,
@@ -365,7 +422,17 @@ class V8AggregatedSkillLibraryBuilder:
         cluster_rows = [source.row for source in sources]
         source_details = [(source.row, source.detail) for source in sources]
         source_skill_names = [source.detail.header.name for source in sources]
+        markers = _leakage_markers(
+            family_rows=cluster_rows,
+            source_skill_names=source_skill_names,
+            source_ids=[source.source_id for source in sources],
+        )
         shared_resource_bundle, shared_resource_conflicts = _collect_shared_resource_bundle(sources)
+        shared_resource_bundle, filtered_resource_paths = _filter_public_resource_bundle(
+            shared_resource_bundle,
+            markers=markers,
+        )
+        public_resource_paths = set(shared_resource_bundle)
         allowed_tools = _allowed_tools_from_sources(sources)
         if not any(path.startswith("scripts/") for path in shared_resource_bundle):
             allowed_tools = [tool for tool in allowed_tools if tool != "run_python_script"]
@@ -437,7 +504,7 @@ class V8AggregatedSkillLibraryBuilder:
                             "allowed_tools": source.detail.header.allowed_tools,
                         },
                         "body": source.detail.body,
-                        "resources": source.detail.resources,
+                        "resources": _prompt_visible_resources(source, public_resource_paths=public_resource_paths),
                     }
                     for source in sources
                 ],
@@ -445,95 +512,122 @@ class V8AggregatedSkillLibraryBuilder:
                 indent=2,
             ),
         )
-        payload, llm_result = self.llm.chat_json(
-            [
-                LLMMessage(role="system", content=system_prompt),
-                LLMMessage(role="user", content=user_prompt),
-            ]
-        )
-        log_llm_call(log_root, f"aggregator_{shape}_v8", llm_result)
+        attempts_raw = os.environ.get("NLRL_AGGREGATOR_V8_OUTPUT_ATTEMPTS", "").strip()
+        max_attempts = max(1, int(attempts_raw)) if attempts_raw else 3
+        last_error: Exception | None = None
+        last_skill_md: str | None = None
+        last_guidance_md = ""
 
-        generated_name = str(payload.get("name", "")).strip() or cluster["name"]
-        generated_description = str(payload.get("description", "")).strip() or cluster["description"]
-        generated_name, generated_description = _augment_routing_surface(
-            name=generated_name,
-            description=generated_description,
-            allowed_tools=allowed_tools,
-            sources=sources,
-            shape=shape,
-        )
-        generated_name = _normalize_public_skill_name(generated_name)
-        skill_md_raw = str(payload.get("skill_md", "")).strip()
-        if not skill_md_raw:
-            raise ValueError(f"{shape} aggregation returned empty `skill_md` for {cluster['cluster_id']}")
-        skill_md = _normalize_skill_markdown_v2(
-            skill_md_raw,
-            name=generated_name,
-            description=generated_description,
-            allowed_tools=allowed_tools,
-            compatibility=compatibility,
-            metadata=metadata,
-        )
-        if shape == "flat":
-            _assert_required_sections(
-                skill_md,
+        for attempt in range(1, max_attempts + 1):
+            attempt_user_prompt = user_prompt
+            if last_error is not None:
+                attempt_user_prompt += _aggregation_feedback_suffix(
+                    last_error,
+                    markers=markers,
+                    skill_md=last_skill_md,
+                    guidance_md=last_guidance_md,
+                )
+            payload, llm_result = self.llm.chat_json(
                 [
-                    "## High-Level Execution Guidance",
-                    "## Common Defaults",
-                    "## Global Guardrails",
-                ],
-                label=f"{cluster['cluster_id']} flat SKILL.md",
+                    LLMMessage(role="system", content=system_prompt),
+                    LLMMessage(role="user", content=attempt_user_prompt),
+                ]
             )
-            bundle_files = {"SKILL.md": skill_md}
-            for relative_path, content in shared_resource_bundle.items():
-                if relative_path not in bundle_files:
-                    bundle_files[relative_path] = content
-            guidance_md = ""
-        else:
-            guidance_md = str(payload.get("execution_guidance_md", "")).strip()
-            if not guidance_md:
-                raise ValueError(f"{shape} aggregation returned empty `execution_guidance_md` for {cluster['cluster_id']}")
-            _assert_required_sections(
-                skill_md,
-                [
-                    "## Execution Profile Index",
-                    "## Global Execution Rules",
-                    "## Global Guardrails",
-                    "## Reference Usage",
-                ],
-                label=f"{cluster['cluster_id']} tree SKILL.md",
-            )
-            bundle_files = {
-                "SKILL.md": skill_md,
-                "references/EXECUTION_GUIDANCE.md": guidance_md.strip() + "\n",
-            }
-            for relative_path, content in shared_resource_bundle.items():
-                if relative_path not in bundle_files:
-                    bundle_files[relative_path] = content
+            log_llm_call(log_root, f"aggregator_{shape}_v8_attempt_{attempt}", llm_result)
 
-        markers = _leakage_markers(family_rows=cluster_rows, source_skill_names=source_skill_names)
-        _assert_no_consumer_leakage(skill_md, markers=markers)
-        if guidance_md:
-            _assert_no_consumer_leakage(guidance_md, markers=markers)
+            attempt_skill_md: str | None = None
+            attempt_guidance_md = ""
+            try:
+                generated_name = str(payload.get("name", "")).strip() or cluster["name"]
+                generated_description = str(payload.get("description", "")).strip() or cluster["description"]
+                generated_name, generated_description = _augment_routing_surface(
+                    name=generated_name,
+                    description=generated_description,
+                    allowed_tools=allowed_tools,
+                    sources=sources,
+                    shape=shape,
+                )
+                generated_name = _normalize_public_skill_name(generated_name)
+                skill_md_raw = str(payload.get("skill_md", "")).strip()
+                if not skill_md_raw:
+                    raise ValueError(f"{shape} aggregation returned empty `skill_md` for {cluster['cluster_id']}")
+                skill_md = _normalize_skill_markdown_v2(
+                    skill_md_raw,
+                    name=generated_name,
+                    description=generated_description,
+                    allowed_tools=allowed_tools,
+                    compatibility=compatibility,
+                    metadata=metadata,
+                )
+                attempt_skill_md = skill_md
+                if shape == "flat":
+                    _assert_required_sections(
+                        skill_md,
+                        [
+                            "## High-Level Execution Guidance",
+                            "## Common Defaults",
+                            "## Global Guardrails",
+                        ],
+                        label=f"{cluster['cluster_id']} flat SKILL.md",
+                    )
+                    bundle_files = {"SKILL.md": skill_md}
+                    for relative_path, content in shared_resource_bundle.items():
+                        if relative_path not in bundle_files:
+                            bundle_files[relative_path] = content
+                    guidance_md = ""
+                else:
+                    guidance_md = str(payload.get("execution_guidance_md", "")).strip()
+                    if not guidance_md:
+                        raise ValueError(f"{shape} aggregation returned empty `execution_guidance_md` for {cluster['cluster_id']}")
+                    _assert_required_sections(
+                        skill_md,
+                        [
+                            "## Execution Profile Index",
+                            "## Global Execution Rules",
+                            "## Global Guardrails",
+                            "## Reference Usage",
+                        ],
+                        label=f"{cluster['cluster_id']} tree SKILL.md",
+                    )
+                    bundle_files = {
+                        "SKILL.md": skill_md,
+                        "references/EXECUTION_GUIDANCE.md": guidance_md.strip() + "\n",
+                    }
+                    for relative_path, content in shared_resource_bundle.items():
+                        if relative_path not in bundle_files:
+                            bundle_files[relative_path] = content
+                attempt_guidance_md = guidance_md
 
-        skill_dir = write_skill_bundle(branch_root, generated_name, bundle_files)
-        info = {
-            "shape": shape,
-            "cluster_id": cluster["cluster_id"],
-            "cluster_name": cluster["name"],
-            "generated_skill_name": generated_name,
-            "description": generated_description,
-            "source_mode": source_mode,
-            "source_ids": [source.source_id for source in sources],
-            "source_skill_names": source_skill_names,
-            "source_question_ids": [str(source.row.get("original_question_id", "")) for source in sources],
-            "allowed_tools": allowed_tools,
-            "llm_summary": str(payload.get("summary", "")).strip(),
-            "output_skill_dir": str(skill_dir.resolve()),
-        }
-        info_path = info_root / f"{shape}__{cluster['name_slug']}.json"
-        write_json(info_path, info)
-        return info | {"aggregation_info_path": str(info_path.resolve())}
+                _assert_no_consumer_leakage(skill_md, markers=markers)
+                if guidance_md:
+                    _assert_no_consumer_leakage(guidance_md, markers=markers)
+
+                skill_dir = write_skill_bundle(branch_root, generated_name, bundle_files)
+                info = {
+                    "shape": shape,
+                    "cluster_id": cluster["cluster_id"],
+                    "cluster_name": cluster["name"],
+                    "generated_skill_name": generated_name,
+                    "description": generated_description,
+                    "source_mode": source_mode,
+                    "source_ids": [source.source_id for source in sources],
+                    "source_skill_names": source_skill_names,
+                    "source_question_ids": [str(source.row.get("original_question_id", "")) for source in sources],
+                    "allowed_tools": allowed_tools,
+                    "llm_summary": str(payload.get("summary", "")).strip(),
+                    "output_skill_dir": str(skill_dir.resolve()),
+                    "aggregation_attempts_used": attempt,
+                    "filtered_shared_resource_paths": filtered_resource_paths,
+                }
+                info_path = info_root / f"{shape}__{cluster['name_slug']}.json"
+                write_json(info_path, info)
+                return info | {"aggregation_info_path": str(info_path.resolve())}
+            except Exception as exc:
+                last_error = exc
+                last_skill_md = attempt_skill_md
+                last_guidance_md = attempt_guidance_md
+                if attempt >= max_attempts:
+                    raise
 
     def build_from_run(
         self,

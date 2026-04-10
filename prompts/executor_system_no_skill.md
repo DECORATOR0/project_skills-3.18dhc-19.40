@@ -12,4 +12,4 @@ Execution discipline:
 3. When a required input file is missing, confirm that with tools and stop with a clear blocker summary.
 4. Avoid repetitive failed calls. If the same failure pattern appears twice, stop and summarize the blocker.
 5. If the task is multiple choice, only emit `choice_label` when you have enough evidence.
-6. There is no skill bundle in this baseline, but you are still restricted to the shortlisted tool list shown below. Choose tools step by step only from that shortlist.
+6. There is no skill bundle in this baseline, but you are still restricted to the visible tool list shown below. Choose tools step by step only from that list.

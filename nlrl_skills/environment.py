@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
+from agent.skill_eval.config import TOOL_FILES, TOOL_SOURCE_DIR
 from agent.skill_eval.tool_catalog import build_catalog as build_skill_eval_catalog
+from agent.skill_eval.tool_catalog import parse_tool_file
 from agent.skill_eval.tool_router import shortlist_tools as build_skill_eval_shortlist
 
 from .agent_loop import JSONToolAgent
@@ -101,7 +104,22 @@ class SkillEnvironment:
     def _cached_skill_eval_catalog() -> tuple:
         return tuple(build_skill_eval_catalog())
 
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _cached_actual_mcp_tool_names() -> tuple[str, ...]:
+        tool_names: list[str] = []
+        for module_file in TOOL_FILES:
+            tool_names.extend(tool.canonical_name for tool in parse_tool_file(TOOL_SOURCE_DIR / module_file))
+        return tuple(sorted(dict.fromkeys(tool_names)))
+
     def _no_skill_shortlist(self, task: DatasetTask) -> list[str]:
+        available_names = set(self.toolbox.all_tool_names())
+        if os.environ.get("NLRL_NO_SKILL_TOOL_MODE", "").strip().lower() == "all":
+            return [
+                name
+                for name in self._cached_actual_mcp_tool_names()
+                if name in available_names
+            ]
         original_qid = str(task.metadata.get("original_question_id", "")).strip() or None
         shortlisted = build_skill_eval_shortlist(
             list(self._cached_skill_eval_catalog()),
@@ -109,7 +127,6 @@ class SkillEnvironment:
             task.file_list,
             question_id=original_qid,
         )
-        available_names = {spec.name for spec in self.toolbox.specs()}
         shortlisted_names = [
             tool.canonical_name
             for tool in shortlisted

@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import inspect
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -244,6 +245,16 @@ class EOToolRuntime:
             finally:
                 sys.argv = old_argv
 
+    def _resolve_tool_function(self, value: Any) -> tuple[Callable[..., Any] | None, str | None, str]:
+        if inspect.isfunction(value):
+            return value, None, ""
+        fn = getattr(value, "fn", None)
+        if callable(fn):
+            tool_name = getattr(value, "name", None)
+            description = str(getattr(value, "description", "") or "").strip()
+            return fn, (str(tool_name).strip() or None), description
+        return None, None, ""
+
     def _load_all(self) -> None:
         for module_file in EO_TOOL_FILES:
             source_path = self.tools_dir / module_file
@@ -251,20 +262,22 @@ class EOToolRuntime:
                 continue
             parsed = {name: desc for name, desc in self._parse_tool_nodes(source_path)}
             module = self._load_module(module_file)
-            for name, value in vars(module).items():
-                if not inspect.isfunction(value):
+            for exported_name, value in vars(module).items():
+                func, registered_name, wrapped_desc = self._resolve_tool_function(value)
+                if func is None:
                     continue
-                desc = parsed.get(name, "")
+                name = registered_name or exported_name
+                desc = parsed.get(exported_name, "") or wrapped_desc
                 if not desc:
                     if name not in _EO_TOOL_REGISTRY_FALLBACKS:
                         continue
-                    doc = inspect.getdoc(value) or ""
+                    doc = inspect.getdoc(func) or ""
                     desc = doc.strip().splitlines()[0] if doc.strip() else f"EO tool {name}"
                 self._registry[name] = ToolSpec(
                     name=name,
                     description=desc or f"EO tool {name}",
-                    parameters=self._schema_from_signature(value),
-                    callable=value,
+                    parameters=self._schema_from_signature(func),
+                    callable=func,
                     source=f"agent/tools/{module_file}",
                 )
 
@@ -617,6 +630,9 @@ class Toolbox:
 
     def tool_prompt(self, allowed_tools: list[str] | None = None) -> str:
         return "\n".join(spec.prompt_entry() for spec in self.specs(allowed_tools))
+
+    def all_tool_names(self) -> list[str]:
+        return sorted(self._registry)
 
     def list_dir(self, path: str = ".") -> list[str]:
         target = self._resolve_workspace_path(path)

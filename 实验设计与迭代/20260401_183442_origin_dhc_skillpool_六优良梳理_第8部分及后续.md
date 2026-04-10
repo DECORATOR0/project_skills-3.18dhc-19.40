@@ -1004,3 +1004,123 @@ metadata:
   - `runs/v8_executor_token_budget_formal60_20260408_r5_c20`
 - `tree q42` 单题 retry
   - `runs/v8_executor_token_budget_formal60_20260408_r5_c20_tree_task42_retry`
+
+#### 8.1.17 2026-04-08 `no-skill / all-tools` 基线前置探针：先修当前 runtime 工具注册，再量首轮 prompt token
+
+这一小节先不正式重跑整套 baseline，先把前置口径钉死：`8.1.16` 的 skill-executor 线底层工具全集到底是不是 `104`，以及当前工作区为什么一度只看到 `17` 个工具。
+
+**先把两个口径分开**
+
+- `8.1.16` 不是“executor 直接拿全部 `104` 工具做题”。
+- 它仍然是：
+  - 底层工具全集来自 `agent/tools/*.py`
+  - 但真正发给 executor 的，是 active skill 的 `allowed-tools` 子集
+- 也就是说：
+  - “底座全集”与“单题实际可见工具子集”不是一个概念
+  - `8.1.16` 的单题 request 里出现 `23` 个 vision 工具，或者 `17` 个 spectrum/statistics 工具，都不矛盾
+
+**`104` 这个数本身是对的**
+
+- 按 `agent/skill_eval/tool_catalog.py` 的 AST 口径，只数真实 `@mcp.tool`：
+  - `Index.py`: `12`
+  - `Inversion.py`: `17`
+  - `Perception.py`: `15`
+  - `Analysis.py`: `10`
+  - `Statistics.py`: `50`
+  - 合计：`104`
+- 这也和 `agent/skill_eval/test_all_tools_smoke.py` 里的 `expected_actual_mcp_tools` 口径一致
+
+**为什么当前工作区一度只剩 `17`**
+
+- 根因不是 `allowed-tools` 逻辑坏了，而是 `nlrl_skills/tools.py` 的 runtime 注册逻辑和当前 `fastmcp` 行为不再匹配：
+  - 旧代码只注册 `inspect.isfunction(value)` 为真的对象
+  - 但当前环境里 `fastmcp 2.11.3` 下，`@mcp.tool()` 装饰后的导出名已经是 `FunctionTool`，不再是普通 function
+- 结果就是：
+  - 大多数真实 MCP 工具被过滤掉
+  - 只剩：
+    - `10` 个 `_EO_TOOL_REGISTRY_FALLBACKS` 里的单图 index helper
+    - `7` 个 built-in 文件/脚本工具
+  - 合计 `17`
+
+**这次做的修正**
+
+- `nlrl_skills/tools.py`
+  - 给 `EOToolRuntime` 增加对 `FunctionTool` 的兼容注册
+  - 若模块导出对象带 `.fn`，就取其底层函数做 schema 与执行入口
+  - 保留旧的 fallback 逻辑不动
+- 修完后，当前 `nlrl_skills` runtime 的 executor 可见全集变成：
+  - `104` 个 actual MCP tools
+  - `10` 个 fallback 单图 index tools
+  - `7` 个 built-in tools
+  - 合计 `121`
+
+**给 `no-skill` 基线补一个直接放开全集的开关**
+
+- `nlrl_skills/environment.py`
+  - 新增环境变量口径：
+    - `NLRL_NO_SKILL_TOOL_MODE=all`
+  - 在 `no-skill-executor` 模式下：
+    - 默认仍走现有 shortlist
+    - 若设成 `all`，则只把 `104` 个真实 MCP tools 暴露给 executor
+    - 具体做法是：
+      - 先按 `agent/tools/*.py` 的 AST 口径取真实 `@mcp.tool` 名单
+      - 再和当前 runtime 已成功注册的名字求交集
+  - 这样处理以后：
+    - runtime 内部依然可能可见 `121` 个条目
+    - 但 no-skill baseline 发给 executor 的“all tools”口径，已经收敛成你要的那层：只给它真正需要直接调用的 `104` 个 MCP 工具
+- `prompts/executor_system_no_skill.md`
+- `prompts/executor_user_no_skill.md`
+  - 文案从“shortlisted tool list”改成更中性的“visible tool list”
+
+**先用一题量首轮 prompt token，不急着跑完整 baseline**
+
+- 题目：
+  - `earth-bench-c-1`
+- 目标测试口径：
+  - `qwen3-8b`
+  - 输入上限按 `32K`
+  - 输出上限按 `8K`
+- 注意这里要单独记一条：
+  - 当前 executor budgeting 实现是 `max_input_tokens = executor_total_token_budget - executor.max_tokens`
+  - 所以如果真想跑“`32K input + 8K output`”，运行时总 budget 不能再写 `32768`
+  - 而应该写成：
+    - `executor_total_token_budget = 40960`
+    - `executor.max_tokens = 8192`
+    - 这样 executor input budget 才是 `32768`
+
+**本地量到的关键数字**
+
+- executor-facing baseline 只按 `104` 个 actual MCP tools 计：
+  - `tools_json_tokens = 7803`
+  - `system_message_tokens = 8498`
+  - `user_prompt_tokens = 734`
+  - `step1_prompt_tokens = 9245`
+  - 相对 `32K input` 还剩 `23523`
+- 另外单独量了一次 runtime 内部 `121` 可见项的诊断值：
+  - `tools_json_tokens = 30615`
+  - `system_message_tokens = 31310`
+  - `user_prompt_tokens = 734`
+  - `step1_prompt_tokens = 32057`
+  - 相对 `32K input` 只剩 `711`
+
+**这里最值得记住的结论**
+
+- 如果只谈“EarthAgent 风格真实 MCP 工具底座”，那 `104` 这个数没问题。
+- `121` 这个数代表的是当前 `nlrl_skills` runtime 内部可见项总数，不是现在 no-skill baseline 发给 executor 的工具面：
+  - 因为还叠加了 `10` 个 fallback 单图 index 工具
+  - 以及 `7` 个 built-in 文件/脚本工具
+- 更关键的是：
+  - 现在真正 executor-facing 的 no-skill/all-tools baseline，已经是 `104` 口径，首轮 prompt 只有 `9245 token`
+  - `121` 口径只是一个诊断提醒：如果哪天把 fallback/built-in 也原样塞给 executor，step1 会立刻冲到 `32057 token`
+  - 所以当前这版修正，不只是把“17 个工具”的注册问题修掉，也顺手把 baseline 工具面固定到了更合理的 `104`
+
+**当前状态**
+
+- runtime 工具注册问题已经修掉，当前工作区可以重新看见完整工具面
+- 也已经补了 `NLRL_NO_SKILL_TOOL_MODE=all`
+- 单题一跳的本地 token 探针已经足够说明问题：
+  - executor-facing baseline 的 `104` 工具口径已经接全
+  - 首轮 prompt 也没有贴住 `32K input`
+- 所以下一步如果继续做 `8.17` 正式 baseline，重点就不该再是“有没有接上全部工具”，而该转成：
+  - 用当前这版 `104` 工具口径正式跑 no-skill/executor baseline
+  - 再看相对 skill-executor 线的准确率、步数、token 消耗差异

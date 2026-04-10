@@ -24,6 +24,8 @@ Routing-surface requirements:
 3. If this cluster truly fits a time-series trend workflow, mention linear trend/slope/time series explicitly.
 4. For paired-band or derived-index comparison clusters, surface the public task shape in `name` or `description` using phrasing router can match, such as before/after, same month across years, or year-vs-year comparison. Do not hide that shape behind abstract wording like `explicit windows` alone.
 5. For generic raster trend clusters, keep the routing surface narrow to a single ordered raster series / linear trend task. Do not make it sound like it handles paired-band index change questions.
+6. Never expose benchmark/internal identifiers anywhere in the returned object. Forbidden leakage includes question ids like `Q<ID>`, phrases like `question <id>`, source ids, `original_question_id`, source skill names, and question-specific helper filenames such as `*_<id>.py`.
+7. Only reference helper scripts or references that appear in `cluster_json.shared_resource_candidates`. Do not mention source-only helper paths that are not in that list.
 
 `skill_md` requirements:
 1. Include YAML frontmatter with `name`, `description`, `allowed-tools`, `compatibility`, and `metadata`.
@@ -78,3 +80,4 @@ Routing-surface requirements:
 13. If a mode ends with a direction-sensitive helper such as signed change/trend, its `flow_hint`, `canonical_flows`, or `edge_cases` must explicitly remind the executor that chronology controls the helper keys (`later` vs `earlier`), not execution order.
 14. If a mode requires planned derived outputs for multiple blocks/windows, its `flow_hint` or `canonical_flows` must keep a strict phase order: discovery -> helper planning -> producing-tool call for every required block/window -> block-local statistics from tool-returned paths -> comparison -> answer mapping. Do not let one block be summarized while another still has only helper-planned outputs.
 15. If discovery on `data_dir` may include stale derived artifacts mixed with raw inputs, mode guidance must treat those files as ambient unless the task explicitly names them as inputs. Downstream steps for newly produced artifacts must use tool-returned paths from the current run.
+16. If source material mentions benchmark-specific helper names or internal labels, rewrite them into public reusable guidance or omit them. Do not echo those literals into `skill_md`, `execution_guidance_md`, or `summary`.

@@ -216,11 +216,18 @@ def extract_json_object(text: str) -> dict[str, Any]:
 
 
 def safe_relative_path(base_dir: Path, user_path: str) -> Path:
-    candidate = (base_dir / user_path).resolve()
-    base_resolved = base_dir.resolve()
-    if base_resolved == candidate or base_resolved in candidate.parents:
-        return candidate
-    raise ValueError(f"Path escapes base directory: {user_path}")
+    candidate = Path(user_path)
+    if candidate.is_absolute():
+        raise ValueError(f"Path escapes base directory: {user_path}")
+
+    lexical_target = base_dir / candidate
+    try:
+        relative = lexical_target.relative_to(base_dir)
+    except ValueError:
+        raise ValueError(f"Path escapes base directory: {user_path}") from None
+    if any(part == ".." for part in relative.parts):
+        raise ValueError(f"Path escapes base directory: {user_path}")
+    return lexical_target
 
 
 def relative_to(path: Path, base_dir: Path) -> str:

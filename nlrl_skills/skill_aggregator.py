@@ -439,10 +439,12 @@ def _leakage_markers(
     *,
     family_rows: list[dict],
     source_skill_names: list[str],
+    source_ids: list[str] | None = None,
 ) -> list[str]:
     markers = [
         "source_question_ids",
         "source_skill_names",
+        "source_ids",
         "example_questions",
         "original_question_id",
         "source_prompt",
@@ -460,21 +462,35 @@ def _leakage_markers(
         if str(row.get("original_question_id", "")).strip()
     )
     markers.extend(source_skill_names)
+    if source_ids:
+        markers.extend(source_ids)
     return [marker for marker in markers if marker]
 
 
-def _assert_no_consumer_leakage(text: str, *, markers: list[str]) -> None:
+def _find_consumer_leakage_markers(text: str, *, markers: list[str]) -> list[str]:
     lowered = text.lower()
+    matches: list[str] = []
     for marker in markers:
         marker_lower = marker.lower()
         if not marker_lower:
             continue
         if marker_lower.isdigit():
             if re.search(rf"\b{re.escape(marker_lower)}\b", lowered):
-                raise ValueError(f"Consumer-facing aggregation output leaked benchmark identifier: {marker}")
+                matches.append(marker)
             continue
         if marker_lower in lowered:
-            raise ValueError(f"Consumer-facing aggregation output leaked forbidden marker: {marker}")
+            matches.append(marker)
+    return matches
+
+
+def _assert_no_consumer_leakage(text: str, *, markers: list[str]) -> None:
+    matches = _find_consumer_leakage_markers(text, markers=markers)
+    if not matches:
+        return
+    marker = matches[0]
+    if marker.isdigit():
+        raise ValueError(f"Consumer-facing aggregation output leaked benchmark identifier: {marker}")
+    raise ValueError(f"Consumer-facing aggregation output leaked forbidden marker: {marker}")
 
 
 def _aggregator_llm_config(config: SystemConfig) -> LLMConfig:

@@ -21,6 +21,8 @@ Routing-surface requirements:
 1. `name` and `description` are router-critical. Keep 1-3 strong public anchors from the retained source prompts/skill descriptions when they are the main disambiguators, such as NDTI/turbidity, precipitation/rainfall, paired bands, before/after periods, or linear trend.
 2. If this cluster is about discrete period comparison, say that explicitly in `description`; do not make it sound like a generic trend/regression skill.
 3. If this cluster truly fits a time-series trend workflow, mention linear trend/slope/time series explicitly.
+4. Never expose benchmark/internal identifiers anywhere in the returned object. Forbidden leakage includes question ids like `Q<ID>`, phrases like `question <id>`, source ids, `original_question_id`, source skill names, and question-specific helper filenames such as `*_<id>.py`.
+5. Only reference helper scripts or references that appear in `cluster_json.shared_resource_candidates`. Do not mention source-only helper paths that are not in that list.
 
 `skill_md` requirements:
 1. Include YAML frontmatter with `name`, `description`, `allowed-tools`, `compatibility`, and `metadata`.
@@ -48,3 +50,4 @@ Routing-surface requirements:
 16. `name` must be public-facing natural language. Do not copy a source skill slug or internal hyphenated label verbatim; if you keep the same anchors, rewrite them as a normal readable name.
 17. If the workflow requires planned derived outputs for multiple blocks/windows, `## High-Level Execution Guidance` must define a strict phase order: discovery -> helper planning -> producing-tool call for every required block/window -> block-local statistics from tool-returned paths -> comparison -> answer mapping. Do not describe or imply a path where one block is summarized while another still only has helper-planned outputs.
 18. If discovery on `data_dir` may include stale derived artifacts mixed with raw inputs, `## Global Guardrails` must say those files are ambient unless the task explicitly names them. Downstream steps for newly produced artifacts must use tool-returned paths from the current run.
+19. If source material mentions benchmark-specific helper names or internal labels, rewrite them into public reusable guidance or omit them. Do not echo those literals into `skill_md` or `summary`.
