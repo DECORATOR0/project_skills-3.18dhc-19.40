@@ -1,0 +1,185 @@
+{
+  "task_id": "earth-bench-c-112",
+  "task_prompt": "Analyze the nighttime light intensity trend in Leon (2013-2024) using linear regression.",
+  "env_result": {
+    "final_answer": "Blocked: this EarthBench task requires unavailable temporal tools (needed: compute_linear_trend; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.",
+    "final_choice_label": "",
+    "tool_trajectory": [],
+    "executor_summary": "The task requires temporal analysis tools for linear regression trends, but only read_file is available. No further processing can occur without the required temporal tools.",
+    "raw_executor_output": "{\n  \"thought\": \"The task requires analyzing a temporal trend via linear regression, which falls under the 'temporal' family in the skill's metadata. However, the allowed_tools only include 'read_file', lacking any temporal processing capabilities like 'compute_linear_trend'. Without these tools, I cannot derive the regression parameters.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable temporal tools (needed: compute_linear_trend; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\",\n  \"choice_label\": \"\",\n  \"summary\": \"The task requires temporal analysis tools for linear regression trends, but only read_file is available. No further processing can occur without the required temporal tools.\"\n}",
+    "evaluation": {
+      "accuracy": 0.0,
+      "efficiency": 0.0,
+      "tool_any_order": 0.0,
+      "tool_in_order": 0.0,
+      "tool_exact_match": 0.0,
+      "parameter_accuracy": 0.0,
+      "task_success": false,
+      "notes": "Earth-Bench style trajectory/result metrics."
+    }
+  },
+  "gold_trajectory": [
+    {
+      "role": "user",
+      "content": "Based on January nighttime light intensity of Leon (2013-2024), compute the annual mean intensity and estimate the linear trend. The relevant data is stored in benchmark/data/question112."
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_filelist",
+            "arguments": {
+              "dir_path": "benchmark/data/question112"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_filelist",
+      "content": {
+        "type": null,
+        "content": [
+          "Leon_avg_rad_2013-01-01.tif",
+          "Leon_avg_rad_2014-01-01.tif",
+          "Leon_avg_rad_2015-01-01.tif",
+          "Leon_avg_rad_2016-01-01.tif",
+          "Leon_avg_rad_2017-01-01.tif",
+          "Leon_avg_rad_2018-01-01.tif",
+          "Leon_avg_rad_2019-01-01.tif",
+          "Leon_avg_rad_2020-01-01.tif",
+          "Leon_avg_rad_2021-01-01.tif",
+          "Leon_avg_rad_2022-01-01.tif",
+          "Leon_avg_rad_2023-01-01.tif",
+          "Leon_avg_rad_2024-01-01.tif"
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean",
+            "arguments": {
+              "file_list": [
+                "benchmark/data/question112/Leon_avg_rad_2013-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2014-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2015-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2016-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2017-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2018-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2019-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2020-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2021-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2022-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2023-01-01.tif",
+                "benchmark/data/question112/Leon_avg_rad_2024-01-01.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean",
+      "content": {
+        "type": null,
+        "content": [
+          2.05,
+          2.17,
+          2.29,
+          2.41,
+          2.53,
+          2.65,
+          2.77,
+          2.89,
+          3.01,
+          3.13,
+          3.25,
+          3.37
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "compute_linear_trend",
+            "arguments": {
+              "y": [
+                2.05,
+                2.17,
+                2.29,
+                2.41,
+                2.53,
+                2.65,
+                2.77,
+                2.89,
+                3.01,
+                3.13,
+                3.25,
+                3.37
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "compute_linear_trend",
+      "content": {
+        "type": null,
+        "content": {
+          "slope": 0.12,
+          "intercept": 1.96
+        }
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "B"
+    }
+  ],
+  "gold_tool_names": [
+    "get_filelist",
+    "calc_batch_image_mean",
+    "compute_linear_trend"
+  ],
+  "active_skill_name": "earthbench-multimodal-geospatial-qa",
+  "task_context": {
+    "data_dir": "/mnt/lab/moestate/graduate_stu/dch_exp/alphaearth/Earth-Bench/question112",
+    "file_list": [
+      "Leon_avg_rad_2013-01-01.tif",
+      "Leon_avg_rad_2014-01-01.tif",
+      "Leon_avg_rad_2015-01-01.tif",
+      "Leon_avg_rad_2016-01-01.tif",
+      "Leon_avg_rad_2017-01-01.tif",
+      "Leon_avg_rad_2018-01-01.tif",
+      "Leon_avg_rad_2019-01-01.tif",
+      "Leon_avg_rad_2020-01-01.tif",
+      "Leon_avg_rad_2021-01-01.tif",
+      "Leon_avg_rad_2022-01-01.tif",
+      "Leon_avg_rad_2023-01-01.tif",
+      "Leon_avg_rad_2024-01-01.tif"
+    ],
+    "choices": [
+      "Slope: 0.10; Intercept: 1.85",
+      "Slope: 0.12; Intercept: 1.96",
+      "Slope: 0.14; Intercept: 2.05",
+      "Slope: 0.16; Intercept: 2.12"
+    ],
+    "gold_answer": "B"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "question_id": "45",
+  "task_id": "earth-bench-c-45",
+  "metrics": {
+    "accuracy": 0.0,
+    "efficiency": 0.0,
+    "tool_any_order": 0.0,
+    "tool_in_order": 0.0,
+    "tool_exact_match": 0.0,
+    "parameter_accuracy": 0.0,
+    "task_success": false
+  },
+  "skill_name": "earthbench-multimodal-geospatial-qa"
+}

@@ -1,0 +1,71 @@
+01:31:24 [INFO] __main__: Loaded skill: earthbench-multimodal-geospatial-qa from /mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/runs/train_batch_30/batch_state/skill_library
+01:31:24 [INFO] __main__: Evaluating 30 tasks with skill=earthbench-multimodal-geospatial-qa
+01:31:27 [INFO] __main__: Launching 30 concurrent evaluation workers
+01:31:27 [INFO] __main__: [1/30] Running Q2
+01:31:27 [INFO] __main__: [4/30] Running Q25
+01:31:27 [INFO] __main__: [9/30] Running Q75
+01:31:27 [INFO] __main__: [5/30] Running Q42
+01:31:27 [INFO] __main__: [3/30] Running Q16
+01:31:27 [INFO] __main__: [2/30] Running Q8
+01:31:27 [INFO] __main__: [6/30] Running Q43
+01:31:27 [INFO] __main__: [8/30] Running Q59
+01:31:27 [INFO] __main__: [13/30] Running Q119
+01:31:27 [INFO] __main__: [12/30] Running Q112
+01:31:27 [INFO] __main__: [16/30] Running Q147
+01:31:27 [INFO] __main__: [14/30] Running Q134
+01:31:27 [INFO] __main__: [7/30] Running Q45
+01:31:27 [INFO] __main__: [11/30] Running Q105
+01:31:27 [INFO] __main__: [19/30] Running Q175
+01:31:27 [INFO] __main__: [17/30] Running Q152
+01:31:27 [INFO] __main__: [10/30] Running Q91
+01:31:27 [INFO] __main__: [15/30] Running Q136
+01:31:27 [INFO] __main__: [20/30] Running Q187
+01:31:27 [INFO] __main__: [22/30] Running Q193
+01:31:27 [INFO] __main__: [18/30] Running Q164
+01:31:27 [INFO] __main__: [21/30] Running Q192
+01:31:27 [INFO] __main__: [23/30] Running Q205
+01:31:27 [INFO] __main__: [27/30] Running Q225
+01:31:27 [INFO] __main__: [29/30] Running Q236
+01:31:27 [INFO] __main__: [28/30] Running Q228
+01:31:27 [INFO] __main__: [25/30] Running Q210
+01:31:27 [INFO] __main__: [26/30] Running Q223
+01:31:27 [INFO] __main__: [24/30] Running Q206
+01:31:27 [INFO] __main__: [30/30] Running Q241
+01:31:35 [INFO] __main__: [21/30] Q192 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [12/30] Q112 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [15/30] Q136 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [22/30] Q193 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [9/30] Q75 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [3/30] Q16 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [8/30] Q59 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [11/30] Q105 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:35 [INFO] __main__: [17/30] Q152 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [30/30] Q241 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [18/30] Q164 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [6/30] Q43 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [29/30] Q236 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [14/30] Q134 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [5/30] Q42 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [1/30] Q2 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [13/30] Q119 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:36 [INFO] __main__: [28/30] Q228 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [23/30] Q205 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [26/30] Q223 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [20/30] Q187 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [27/30] Q225 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [19/30] Q175 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [25/30] Q210 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [2/30] Q8 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [24/30] Q206 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:37 [INFO] __main__: [4/30] Q25 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:38 [INFO] __main__: [16/30] Q147 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:38 [INFO] __main__: [10/30] Q91 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:39 [INFO] __main__: [7/30] Q45 | success=False | TAO=0.0000 | TIO=0.0000 | TEM=0.0000 | ACC=0.0000
+01:31:39 [INFO] __main__: Batch summary: {
+  "TAO": 0.0,
+  "TIO": 0.0,
+  "TEM": 0.0,
+  "Efficiency": 0.0,
+  "Parameters": 0.0,
+  "Accuracy": 0.0
+}

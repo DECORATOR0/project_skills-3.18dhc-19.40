@@ -1,0 +1,24 @@
+{
+  "text": "{\n  \"thought\": \"The task requires thermal data processing (surface temperature calculation from Landsat 8 Band 10) but the allowed_tools only include read_file. This is a read_file-only environment for EarthBench image-analysis, which is explicitly blocked by the skill.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable thermal tools (needed: thermal_retrieval; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\",\n  \"summary\": \"The environment lacks required thermal processing tools beyond read_file, making it impossible to analyze the Landsat 8 thermal data for surface temperature calculations.\"\n}",
+  "raw_response": {
+    "stream": true,
+    "chunk_count": 39,
+    "finish_reason": "stop",
+    "last_chunk": {
+      "choices": [],
+      "object": "chat.completion.chunk",
+      "usage": {
+        "prompt_tokens": 2512,
+        "completion_tokens": 506,
+        "total_tokens": 3018,
+        "completion_tokens_details": {
+          "reasoning_tokens": 361
+        }
+      },
+      "created": 1775698289,
+      "system_fingerprint": null,
+      "model": "qwen3-8b",
+      "id": "chatcmpl-97b7cea2-f332-9c2e-a687-6997b21baa95"
+    }
+  }
+}

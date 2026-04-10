@@ -1,0 +1,320 @@
+{
+  "task_id": "earth-bench-c-119",
+  "task_prompt": "Analyze vegetation hotspots in Shennongjia Forest Reserve (2022 growing season) and determine the peak coverage period.",
+  "env_result": {
+    "final_answer": "Blocked: this EarthBench task requires unavailable temporal tools (needed: compute_linear_trend; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.",
+    "final_choice_label": "",
+    "tool_trajectory": [],
+    "executor_summary": "The task requires temporal analysis of NDVI data, but only 'read_file' is allowed. No tools exist to process TIFF files or calculate vegetation trends.",
+    "raw_executor_output": "{\n  \"thought\": \"The task requires analyzing NDVI data to find vegetation hotspots, which falls under the 'temporal' or 'index-mask' families. However, the allowed_tools only include 'read_file', and the skill is explicitly blocked for read-file-only image-analysis tasks. No geospatial/temporal tools are available to process the TIFF files or compute NDVI trends.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable temporal tools (needed: compute_linear_trend; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\",\n  \"choice_label\": \"\",\n  \"summary\": \"The task requires temporal analysis of NDVI data, but only 'read_file' is allowed. No tools exist to process TIFF files or calculate vegetation trends.\"\n}",
+    "evaluation": {
+      "accuracy": 0.0,
+      "efficiency": 0.0,
+      "tool_any_order": 0.0,
+      "tool_in_order": 0.0,
+      "tool_exact_match": 0.0,
+      "parameter_accuracy": 0.0,
+      "task_success": false,
+      "notes": "Earth-Bench style trajectory/result metrics."
+    }
+  },
+  "gold_trajectory": [
+    {
+      "role": "user",
+      "content": "Based on the vegetation coverage data of Shennongjia Forest Reserve (April-October 2022), identify the date with maximum hotspot coverage (areas with values 50% higher than average) and report its proportion. The relevant data is stored in benchmark/data/question119."
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_filelist",
+            "arguments": {
+              "dir_path": "benchmark/data/question119"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_filelist",
+      "content": {
+        "type": null,
+        "content": [
+          "Shennongjia_NDVI_2022-04-07.tif",
+          "Shennongjia_NDVI_2022-04-23.tif",
+          "Shennongjia_NDVI_2022-05-09.tif",
+          "Shennongjia_NDVI_2022-05-25.tif",
+          "Shennongjia_NDVI_2022-06-10.tif",
+          "Shennongjia_NDVI_2022-06-26.tif",
+          "Shennongjia_NDVI_2022-07-12.tif",
+          "Shennongjia_NDVI_2022-07-28.tif",
+          "Shennongjia_NDVI_2022-08-13.tif",
+          "Shennongjia_NDVI_2022-08-29.tif",
+          "Shennongjia_NDVI_2022-09-14.tif",
+          "Shennongjia_NDVI_2022-09-30.tif"
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calculate_tif_difference",
+            "arguments": {
+              "image_a_path": "benchmark/data/question119/Shennongjia_NDVI_2022-06-10.tif",
+              "image_b_path": "benchmark/data/question119/Shennongjia_NDVI_2022-06-26.tif",
+              "output_path": "change_map_2022-06-10_to_2022-06-26.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calculate_tif_difference",
+      "content": {
+        "type": null,
+        "content": "Difference map created: change_map_2022-06-10_to_2022-06-26.tif"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean",
+            "arguments": {
+              "file_list": [
+                "change_map_2022-06-10_to_2022-06-26.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean",
+      "content": {
+        "type": null,
+        "content": [
+          0.485
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_hotspot_percentage",
+            "arguments": {
+              "file_list": [
+                "change_map_2022-06-10_to_2022-06-26.tif"
+              ],
+              "threshold": 0.727
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_hotspot_percentage",
+      "content": {
+        "type": null,
+        "content": [
+          0.727
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calculate_tif_difference",
+            "arguments": {
+              "image_a_path": "benchmark/data/question119/Shennongjia_NDVI_2022-07-28.tif",
+              "image_b_path": "benchmark/data/question119/Shennongjia_NDVI_2022-08-13.tif",
+              "output_path": "change_map_2022-07-28_to_2022-08-13.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calculate_tif_difference",
+      "content": {
+        "type": null,
+        "content": "Difference map created: change_map_2022-07-28_to_2022-08-13.tif"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_hotspot_percentage",
+            "arguments": {
+              "file_list": [
+                "change_map_2022-07-28_to_2022-08-13.tif"
+              ],
+              "threshold": 0.443
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_hotspot_percentage",
+      "content": {
+        "type": null,
+        "content": [
+          0.665
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calculate_tif_difference",
+            "arguments": {
+              "image_a_path": "benchmark/data/question119/Shennongjia_NDVI_2022-09-14.tif",
+              "image_b_path": "benchmark/data/question119/Shennongjia_NDVI_2022-09-30.tif",
+              "output_path": "change_map_2022-09-14_to_2022-09-30.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calculate_tif_difference",
+      "content": {
+        "type": null,
+        "content": "Difference map created: change_map_2022-09-14_to_2022-09-30.tif"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_hotspot_percentage",
+            "arguments": {
+              "file_list": [
+                "change_map_2022-09-14_to_2022-09-30.tif"
+              ],
+              "threshold": 0.389
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_hotspot_percentage",
+      "content": {
+        "type": null,
+        "content": [
+          1.0
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "max_value_and_index",
+            "arguments": {
+              "x": [
+                0.727,
+                0.665,
+                1.0,
+                0.583
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "max_value_and_index",
+      "content": {
+        "type": null,
+        "content": [
+          1.0,
+          2
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "C"
+    }
+  ],
+  "gold_tool_names": [
+    "get_filelist",
+    "calculate_tif_difference",
+    "calc_batch_image_mean",
+    "calc_batch_image_hotspot_percentage",
+    "calculate_tif_difference",
+    "calc_batch_image_hotspot_percentage",
+    "calculate_tif_difference",
+    "calc_batch_image_hotspot_percentage",
+    "max_value_and_index"
+  ],
+  "active_skill_name": "earthbench-multimodal-geospatial-qa",
+  "task_context": {
+    "data_dir": "/mnt/lab/moestate/graduate_stu/dch_exp/alphaearth/Earth-Bench/question119",
+    "file_list": [
+      "Shennongjia_NDVI_2022-04-07.tif",
+      "Shennongjia_NDVI_2022-04-23.tif",
+      "Shennongjia_NDVI_2022-05-09.tif",
+      "Shennongjia_NDVI_2022-05-25.tif",
+      "Shennongjia_NDVI_2022-06-10.tif",
+      "Shennongjia_NDVI_2022-06-26.tif",
+      "Shennongjia_NDVI_2022-07-12.tif",
+      "Shennongjia_NDVI_2022-07-28.tif",
+      "Shennongjia_NDVI_2022-08-13.tif",
+      "Shennongjia_NDVI_2022-08-29.tif",
+      "Shennongjia_NDVI_2022-09-14.tif",
+      "Shennongjia_NDVI_2022-09-30.tif"
+    ],
+    "choices": [
+      "0.727 (2022-06-10 to 2022-06-26)",
+      "0.665 (2022-07-28 to 2022-08-13)",
+      "1.000 (2022-09-14 to 2022-09-30)",
+      "0.583 (2022-08-29 to 2022-09-14)"
+    ],
+    "gold_answer": "C"
+  }
+}

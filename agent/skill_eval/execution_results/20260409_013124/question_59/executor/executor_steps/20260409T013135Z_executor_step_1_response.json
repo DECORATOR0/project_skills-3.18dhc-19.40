@@ -1,0 +1,24 @@
+{
+  "text": "{\n  \"thought\": \"The task requires thermal processing tools for split-window LST estimation, but allowed_tools only include read_file. This is a capability blocker.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable thermal tools (needed: split-window; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\"\n}",
+  "raw_response": {
+    "stream": true,
+    "chunk_count": 30,
+    "finish_reason": "stop",
+    "last_chunk": {
+      "choices": [],
+      "object": "chat.completion.chunk",
+      "usage": {
+        "prompt_tokens": 2727,
+        "completion_tokens": 369,
+        "total_tokens": 3096,
+        "completion_tokens_details": {
+          "reasoning_tokens": 283
+        }
+      },
+      "created": 1775698289,
+      "system_fingerprint": null,
+      "model": "qwen3-8b",
+      "id": "chatcmpl-18dc1d51-3ff1-99a1-8822-94296428a802"
+    }
+  }
+}

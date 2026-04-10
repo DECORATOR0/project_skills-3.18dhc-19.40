@@ -1,0 +1,24 @@
+{
+  "text": "{\n  \"thought\": \"The task requires analyzing geospatial TIFF files with drought-index tools, but allowed_tools only includes read_file. This is a capability blocker as the required EarthBench tool family is unavailable.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable drought-index tools (needed: compute_dryness_index; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\",\n  \"choice_label\": \"\",\n  \"summary\": \"Capability blocker - required drought-index tools not available in allowed_tools\"\n}",
+  "raw_response": {
+    "stream": true,
+    "chunk_count": 34,
+    "finish_reason": "stop",
+    "last_chunk": {
+      "choices": [],
+      "object": "chat.completion.chunk",
+      "usage": {
+        "prompt_tokens": 2527,
+        "completion_tokens": 445,
+        "total_tokens": 2972,
+        "completion_tokens_details": {
+          "reasoning_tokens": 320
+        }
+      },
+      "created": 1775698289,
+      "system_fingerprint": null,
+      "model": "qwen3-8b",
+      "id": "chatcmpl-6bfcf47e-cb9d-9e6e-baca-eed38aa61872"
+    }
+  }
+}

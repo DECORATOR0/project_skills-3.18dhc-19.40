@@ -1,0 +1,24 @@
+{
+  "text": "{\n  \"thought\": \"The task requires processing MODIS band ratio data and calculating drought indicators, which falls under the 'drought-index' family. However, the allowed_tools only include 'read_file', and no geospatial computation tools are available. This is a capability blocker.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable drought-index tools (needed: compute_band_ratio; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\"\n}",
+  "raw_response": {
+    "stream": true,
+    "chunk_count": 28,
+    "finish_reason": "stop",
+    "last_chunk": {
+      "choices": [],
+      "object": "chat.completion.chunk",
+      "usage": {
+        "prompt_tokens": 2992,
+        "completion_tokens": 332,
+        "total_tokens": 3324,
+        "completion_tokens_details": {
+          "reasoning_tokens": 219
+        }
+      },
+      "created": 1775698289,
+      "system_fingerprint": null,
+      "model": "qwen3-8b",
+      "id": "chatcmpl-f648bef2-309b-945e-8c2e-818d59ec2367"
+    }
+  }
+}

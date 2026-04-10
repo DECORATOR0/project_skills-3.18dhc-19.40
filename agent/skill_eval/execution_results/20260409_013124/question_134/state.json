@@ -1,0 +1,657 @@
+{
+  "task_id": "earth-bench-c-134",
+  "task_prompt": "Evaluate Lake Champlain's water index changes between 2007-2008 using cloud-masked NDWI analysis.",
+  "env_result": {
+    "final_answer": "Blocked: this EarthBench task requires unavailable index-mask tools (needed: compute_ndwi; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.",
+    "final_choice_label": "",
+    "tool_trajectory": [],
+    "executor_summary": "Capability blocker - required EO tools for NDWI analysis are missing from allowed_tools",
+    "raw_executor_output": "{\n  \"thought\": \"The task requires NDWI analysis (index-mask family), but allowed_tools only include read_file. No EO tools are available to process the imagery or compute NDWI metrics.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable index-mask tools (needed: compute_ndwi; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\",\n  \"summary\": \"Capability blocker - required EO tools for NDWI analysis are missing from allowed_tools\"\n}",
+    "evaluation": {
+      "accuracy": 0.0,
+      "efficiency": 0.0,
+      "tool_any_order": 0.0,
+      "tool_in_order": 0.0,
+      "tool_exact_match": 0.0,
+      "parameter_accuracy": 0.0,
+      "task_success": false,
+      "notes": "Earth-Bench style trajectory/result metrics."
+    }
+  },
+  "gold_trajectory": [
+    {
+      "role": "user",
+      "content": "Based on the SR_B3, SR_B5, and QA_PIXEL data of Lake Champlain from January 1, 2007 to January 1, 2009, first perform cloud masking using QA_PIXEL, then calculate the NDWI of the lake using SR_B3 (Green band) and SR_B5 (Near-Infrared band), compute the annual average NDWI for 2007 and 2008, and determine the trend of change in the average NDWI between these two years with the magnitude difference."
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_filelist",
+            "arguments": {
+              "dir_path": "benchmark/data/question134"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_filelist",
+      "content": {
+        "type": null,
+        "content": [
+          "Lake Champlain_SR_B3_2007-01-17.tif",
+          "Lake Champlain_SR_B3_2007-01-24.tif",
+          "Lake Champlain_SR_B3_2007-02-02.tif",
+          "Lake Champlain_SR_B3_2007-02-09.tif",
+          "Lake Champlain_SR_B3_2007-02-18.tif",
+          "Lake Champlain_SR_B3_2007-02-25.tif",
+          "Lake Champlain_SR_B3_2007-03-06.tif",
+          "Lake Champlain_SR_B3_2007-03-29.tif",
+          "Lake Champlain_SR_B3_2007-04-23.tif",
+          "Lake Champlain_SR_B3_2007-04-30.tif",
+          "Lake Champlain_SR_B3_2007-05-09.tif",
+          "Lake Champlain_SR_B3_2007-05-25.tif",
+          "Lake Champlain_SR_B3_2007-06-01.tif",
+          "Lake Champlain_SR_B3_2007-06-17.tif",
+          "Lake Champlain_SR_B3_2007-07-03.tif",
+          "Lake Champlain_SR_B3_2007-08-04.tif",
+          "Lake Champlain_SR_B3_2007-08-20.tif",
+          "Lake Champlain_SR_B3_2007-09-05.tif",
+          "Lake Champlain_SR_B3_2007-09-21.tif",
+          "Lake Champlain_SR_B3_2007-09-30.tif",
+          "Lake Champlain_SR_B3_2008-02-28.tif",
+          "Lake Champlain_SR_B3_2008-03-24.tif",
+          "Lake Champlain_SR_B3_2008-04-09.tif",
+          "Lake Champlain_SR_B3_2008-04-16.tif",
+          "Lake Champlain_SR_B3_2008-04-25.tif",
+          "Lake Champlain_SR_B3_2008-05-02.tif",
+          "Lake Champlain_SR_B3_2008-05-11.tif",
+          "Lake Champlain_SR_B3_2008-05-18.tif",
+          "Lake Champlain_SR_B3_2008-05-27.tif",
+          "Lake Champlain_SR_B3_2008-06-03.tif",
+          "Lake Champlain_SR_B3_2008-06-12.tif",
+          "Lake Champlain_SR_B3_2008-07-05.tif",
+          "Lake Champlain_SR_B3_2008-07-14.tif",
+          "Lake Champlain_SR_B3_2008-07-30.tif",
+          "Lake Champlain_SR_B3_2008-08-06.tif",
+          "Lake Champlain_SR_B3_2008-08-15.tif",
+          "Lake Champlain_SR_B3_2008-08-22.tif",
+          "Lake Champlain_SR_B3_2008-08-31.tif",
+          "Lake Champlain_SR_B3_2008-09-07.tif",
+          "Lake Champlain_SR_B3_2008-09-16.tif",
+          "Lake Champlain_SR_B3_2008-09-23.tif",
+          "Lake Champlain_SR_B3_2008-10-09.tif",
+          "Lake Champlain_SR_B3_2008-10-18.tif",
+          "Lake Champlain_SR_B3_2008-11-03.tif",
+          "Lake Champlain_SR_B5_2007-01-17.tif",
+          "Lake Champlain_SR_B5_2007-01-24.tif",
+          "Lake Champlain_SR_B5_2007-02-02.tif",
+          "Lake Champlain_SR_B5_2007-02-09.tif",
+          "Lake Champlain_SR_B5_2007-02-18.tif",
+          "Lake Champlain_SR_B5_2007-02-25.tif",
+          "Lake Champlain_SR_B5_2007-03-06.tif",
+          "Lake Champlain_SR_B5_2007-03-29.tif",
+          "Lake Champlain_SR_B5_2007-04-23.tif",
+          "Lake Champlain_SR_B5_2007-04-30.tif",
+          "Lake Champlain_SR_B5_2007-05-09.tif",
+          "Lake Champlain_SR_B5_2007-05-25.tif",
+          "Lake Champlain_SR_B5_2007-06-01.tif",
+          "Lake Champlain_SR_B5_2007-06-17.tif",
+          "Lake Champlain_SR_B5_2007-07-03.tif",
+          "Lake Champlain_SR_B5_2007-08-04.tif",
+          "Lake Champlain_SR_B5_2007-08-20.tif",
+          "Lake Champlain_SR_B5_2007-09-05.tif",
+          "Lake Champlain_SR_B5_2007-09-21.tif",
+          "Lake Champlain_SR_B5_2007-09-30.tif",
+          "Lake Champlain_SR_B5_2008-02-28.tif",
+          "Lake Champlain_SR_B5_2008-03-24.tif",
+          "Lake Champlain_SR_B5_2008-04-09.tif",
+          "Lake Champlain_SR_B5_2008-04-16.tif",
+          "Lake Champlain_SR_B5_2008-04-25.tif",
+          "Lake Champlain_SR_B5_2008-05-02.tif",
+          "Lake Champlain_SR_B5_2008-05-11.tif",
+          "Lake Champlain_SR_B5_2008-05-18.tif",
+          "Lake Champlain_SR_B5_2008-05-27.tif",
+          "Lake Champlain_SR_B5_2008-06-03.tif",
+          "Lake Champlain_SR_B5_2008-06-12.tif",
+          "Lake Champlain_SR_B5_2008-07-05.tif",
+          "Lake Champlain_SR_B5_2008-07-14.tif",
+          "Lake Champlain_SR_B5_2008-07-30.tif",
+          "Lake Champlain_SR_B5_2008-08-06.tif",
+          "Lake Champlain_SR_B5_2008-08-15.tif",
+          "Lake Champlain_SR_B5_2008-08-22.tif",
+          "Lake Champlain_SR_B5_2008-08-31.tif",
+          "Lake Champlain_SR_B5_2008-09-07.tif",
+          "Lake Champlain_SR_B5_2008-09-16.tif",
+          "Lake Champlain_SR_B5_2008-09-23.tif",
+          "Lake Champlain_SR_B5_2008-10-09.tif",
+          "Lake Champlain_SR_B5_2008-10-18.tif",
+          "Lake Champlain_SR_B5_2008-11-03.tif",
+          "Lake Champlain_QA_PIXEL_2007-01-17.tif",
+          "Lake Champlain_QA_PIXEL_2007-01-24.tif",
+          "Lake Champlain_QA_PIXEL_2007-02-02.tif",
+          "Lake Champlain_QA_PIXEL_2007-02-09.tif",
+          "Lake Champlain_QA_PIXEL_2007-02-18.tif",
+          "Lake Champlain_QA_PIXEL_2007-02-25.tif",
+          "Lake Champlain_QA_PIXEL_2007-03-06.tif",
+          "Lake Champlain_QA_PIXEL_2007-03-29.tif",
+          "Lake Champlain_QA_PIXEL_2007-04-23.tif",
+          "Lake Champlain_QA_PIXEL_2007-04-30.tif",
+          "Lake Champlain_QA_PIXEL_2007-05-09.tif",
+          "Lake Champlain_QA_PIXEL_2007-05-25.tif",
+          "Lake Champlain_QA_PIXEL_2007-06-01.tif",
+          "Lake Champlain_QA_PIXEL_2007-06-17.tif",
+          "Lake Champlain_QA_PIXEL_2007-07-03.tif",
+          "Lake Champlain_QA_PIXEL_2007-08-04.tif",
+          "Lake Champlain_QA_PIXEL_2007-08-20.tif",
+          "Lake Champlain_QA_PIXEL_2007-09-05.tif",
+          "Lake Champlain_QA_PIXEL_2007-09-21.tif",
+          "Lake Champlain_QA_PIXEL_2007-09-30.tif",
+          "Lake Champlain_QA_PIXEL_2008-02-28.tif",
+          "Lake Champlain_QA_PIXEL_2008-03-24.tif",
+          "Lake Champlain_QA_PIXEL_2008-04-09.tif",
+          "Lake Champlain_QA_PIXEL_2008-04-16.tif",
+          "Lake Champlain_QA_PIXEL_2008-04-25.tif",
+          "Lake Champlain_QA_PIXEL_2008-05-02.tif",
+          "Lake Champlain_QA_PIXEL_2008-05-11.tif",
+          "Lake Champlain_QA_PIXEL_2008-05-18.tif",
+          "Lake Champlain_QA_PIXEL_2008-05-27.tif",
+          "Lake Champlain_QA_PIXEL_2008-06-03.tif",
+          "Lake Champlain_QA_PIXEL_2008-06-12.tif",
+          "Lake Champlain_QA_PIXEL_2008-07-05.tif",
+          "Lake Champlain_QA_PIXEL_2008-07-14.tif",
+          "Lake Champlain_QA_PIXEL_2008-07-30.tif",
+          "Lake Champlain_QA_PIXEL_2008-08-06.tif",
+          "Lake Champlain_QA_PIXEL_2008-08-15.tif",
+          "Lake Champlain_QA_PIXEL_2008-08-22.tif",
+          "Lake Champlain_QA_PIXEL_2008-08-31.tif",
+          "Lake Champlain_QA_PIXEL_2008-09-07.tif",
+          "Lake Champlain_QA_PIXEL_2008-09-16.tif",
+          "Lake Champlain_QA_PIXEL_2008-09-23.tif",
+          "Lake Champlain_QA_PIXEL_2008-10-09.tif",
+          "Lake Champlain_QA_PIXEL_2008-10-18.tif",
+          "Lake Champlain_QA_PIXEL_2008-11-03.tif"
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "apply_cloud_mask",
+            "arguments": {
+              "sr_band_path": "benchmark/data/question134/Lake Champlain_SR_B3_2007-01-17.tif",
+              "qa_pixel_path": "benchmark/data/question134/Lake Champlain_QA_PIXEL_2007-01-17.tif",
+              "output_path": "benchmark/data/question134/Lake Champlain_SR_B3_2007-01-17_cloud_masked.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "apply_cloud_mask",
+      "content": {
+        "type": null,
+        "content": "Cloud mask applied successfully to SR_B3 band"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "apply_cloud_mask",
+            "arguments": {
+              "sr_band_path": "benchmark/data/question134/Lake Champlain_SR_B5_2007-01-17.tif",
+              "qa_pixel_path": "benchmark/data/question134/Lake Champlain_QA_PIXEL_2007-01-17.tif",
+              "output_path": "benchmark/data/question134/Lake Champlain_SR_B5_2007-01-17_cloud_masked.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "apply_cloud_mask",
+      "content": {
+        "type": null,
+        "content": "Cloud mask applied successfully to SR_B5 band"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calculate_ndwi",
+            "arguments": {
+              "input_nir_path": "benchmark/data/question134/Lake Champlain_SR_B5_2007-01-17.tif",
+              "input_swir_path": "benchmark/data/question134/Lake Champlain_SR_B3_2007-01-17.tif",
+              "output_path": "Lake_Champlain_ndwi_2007-01-17.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calculate_ndwi",
+      "content": {
+        "type": null,
+        "content": "Result saved at out/question134/Lake_Champlain_ndwi_2007-01-17.tif"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean",
+            "arguments": {
+              "file_list": [
+                "out/question134/Lake_Champlain_ndwi_2007-01-17.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-01-24.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-02-02.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-02-09.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-02-18.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-02-25.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-03-06.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-03-29.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-04-23.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-05-09.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-05-25.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-07-03.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-08-04.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-08-20.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-09-05.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-09-21.tif",
+                "out/question134/Lake_Champlain_ndwi_2007-09-30.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean",
+      "content": {
+        "type": null,
+        "content": [
+          0.142705,
+          0.143201,
+          0.141892,
+          0.144567,
+          0.143891,
+          0.142234,
+          0.143456,
+          0.142789,
+          0.143123,
+          0.142567,
+          0.143234,
+          0.142891,
+          0.143456,
+          0.142789,
+          0.143123,
+          0.142567,
+          0.143234
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean",
+            "arguments": {
+              "file_list": [
+                "out/question134/Lake_Champlain_ndwi_2008-02-28.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-03-24.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-04-09.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-04-16.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-04-25.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-05-11.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-05-18.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-05-27.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-06-03.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-06-12.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-07-05.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-07-14.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-07-30.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-08-15.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-08-22.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-08-31.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-09-07.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-09-16.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-09-23.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-10-09.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-10-18.tif",
+                "out/question134/Lake_Champlain_ndwi_2008-11-03.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean",
+      "content": {
+        "type": null,
+        "content": [
+          0.050354,
+          0.050123,
+          0.050567,
+          0.050234,
+          0.050891,
+          0.050456,
+          0.050789,
+          0.050123,
+          0.050567,
+          0.050234,
+          0.050891,
+          0.050456,
+          0.050789,
+          0.050123,
+          0.050567,
+          0.050234,
+          0.050891,
+          0.050456,
+          0.050789,
+          0.050123,
+          0.050567,
+          0.050234
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "mean",
+            "arguments": {
+              "x": [
+                0.142705,
+                0.143201,
+                0.141892,
+                0.144567,
+                0.143891,
+                0.142234,
+                0.143456,
+                0.142789,
+                0.143123,
+                0.142567,
+                0.143234,
+                0.142891,
+                0.143456,
+                0.142789,
+                0.143123,
+                0.142567,
+                0.143234
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "mean",
+      "content": {
+        "type": null,
+        "content": 0.142705
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "mean",
+            "arguments": {
+              "x": [
+                0.050354,
+                0.050123,
+                0.050567,
+                0.050234,
+                0.050891,
+                0.050456,
+                0.050789,
+                0.050123,
+                0.050567,
+                0.050234,
+                0.050891,
+                0.050456,
+                0.050789,
+                0.050123,
+                0.050567,
+                0.050234,
+                0.050891,
+                0.050456,
+                0.050789,
+                0.050123,
+                0.050567,
+                0.050234
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "mean",
+      "content": {
+        "type": null,
+        "content": 0.050354
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "difference",
+            "arguments": {
+              "a": 0.142705,
+              "b": 0.050354
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "difference",
+      "content": {
+        "type": null,
+        "content": 0.092351
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "A"
+    }
+  ],
+  "gold_tool_names": [
+    "get_filelist",
+    "apply_cloud_mask",
+    "apply_cloud_mask",
+    "calculate_ndwi",
+    "calc_batch_image_mean",
+    "calc_batch_image_mean",
+    "mean",
+    "mean",
+    "difference"
+  ],
+  "active_skill_name": "earthbench-multimodal-geospatial-qa",
+  "task_context": {
+    "data_dir": "/mnt/lab/moestate/graduate_stu/dch_exp/alphaearth/Earth-Bench/question134",
+    "file_list": [
+      "Lake Champlain_SR_B3_2007-01-17.tif",
+      "Lake Champlain_SR_B3_2007-01-24.tif",
+      "Lake Champlain_SR_B3_2007-02-02.tif",
+      "Lake Champlain_SR_B3_2007-02-09.tif",
+      "Lake Champlain_SR_B3_2007-02-18.tif",
+      "Lake Champlain_SR_B3_2007-02-25.tif",
+      "Lake Champlain_SR_B3_2007-03-06.tif",
+      "Lake Champlain_SR_B3_2007-03-29.tif",
+      "Lake Champlain_SR_B3_2007-04-23.tif",
+      "Lake Champlain_SR_B3_2007-04-30.tif",
+      "Lake Champlain_SR_B3_2007-05-09.tif",
+      "Lake Champlain_SR_B3_2007-05-25.tif",
+      "Lake Champlain_SR_B3_2007-06-01.tif",
+      "Lake Champlain_SR_B3_2007-06-17.tif",
+      "Lake Champlain_SR_B3_2007-07-03.tif",
+      "Lake Champlain_SR_B3_2007-08-04.tif",
+      "Lake Champlain_SR_B3_2007-08-20.tif",
+      "Lake Champlain_SR_B3_2007-09-05.tif",
+      "Lake Champlain_SR_B3_2007-09-21.tif",
+      "Lake Champlain_SR_B3_2007-09-30.tif",
+      "Lake Champlain_SR_B3_2008-02-28.tif",
+      "Lake Champlain_SR_B3_2008-03-24.tif",
+      "Lake Champlain_SR_B3_2008-04-09.tif",
+      "Lake Champlain_SR_B3_2008-04-16.tif",
+      "Lake Champlain_SR_B3_2008-04-25.tif",
+      "Lake Champlain_SR_B3_2008-05-02.tif",
+      "Lake Champlain_SR_B3_2008-05-11.tif",
+      "Lake Champlain_SR_B3_2008-05-18.tif",
+      "Lake Champlain_SR_B3_2008-05-27.tif",
+      "Lake Champlain_SR_B3_2008-06-03.tif",
+      "Lake Champlain_SR_B3_2008-06-12.tif",
+      "Lake Champlain_SR_B3_2008-07-05.tif",
+      "Lake Champlain_SR_B3_2008-07-14.tif",
+      "Lake Champlain_SR_B3_2008-07-30.tif",
+      "Lake Champlain_SR_B3_2008-08-06.tif",
+      "Lake Champlain_SR_B3_2008-08-15.tif",
+      "Lake Champlain_SR_B3_2008-08-22.tif",
+      "Lake Champlain_SR_B3_2008-08-31.tif",
+      "Lake Champlain_SR_B3_2008-09-07.tif",
+      "Lake Champlain_SR_B3_2008-09-16.tif",
+      "Lake Champlain_SR_B3_2008-09-23.tif",
+      "Lake Champlain_SR_B3_2008-10-09.tif",
+      "Lake Champlain_SR_B3_2008-10-18.tif",
+      "Lake Champlain_SR_B3_2008-11-03.tif",
+      "Lake Champlain_SR_B5_2007-01-17.tif",
+      "Lake Champlain_SR_B5_2007-01-24.tif",
+      "Lake Champlain_SR_B5_2007-02-02.tif",
+      "Lake Champlain_SR_B5_2007-02-09.tif",
+      "Lake Champlain_SR_B5_2007-02-18.tif",
+      "Lake Champlain_SR_B5_2007-02-25.tif",
+      "Lake Champlain_SR_B5_2007-03-06.tif",
+      "Lake Champlain_SR_B5_2007-03-29.tif",
+      "Lake Champlain_SR_B5_2007-04-23.tif",
+      "Lake Champlain_SR_B5_2007-04-30.tif",
+      "Lake Champlain_SR_B5_2007-05-09.tif",
+      "Lake Champlain_SR_B5_2007-05-25.tif",
+      "Lake Champlain_SR_B5_2007-06-01.tif",
+      "Lake Champlain_SR_B5_2007-06-17.tif",
+      "Lake Champlain_SR_B5_2007-07-03.tif",
+      "Lake Champlain_SR_B5_2007-08-04.tif",
+      "Lake Champlain_SR_B5_2007-08-20.tif",
+      "Lake Champlain_SR_B5_2007-09-05.tif",
+      "Lake Champlain_SR_B5_2007-09-21.tif",
+      "Lake Champlain_SR_B5_2007-09-30.tif",
+      "Lake Champlain_SR_B5_2008-02-28.tif",
+      "Lake Champlain_SR_B5_2008-03-24.tif",
+      "Lake Champlain_SR_B5_2008-04-09.tif",
+      "Lake Champlain_SR_B5_2008-04-16.tif",
+      "Lake Champlain_SR_B5_2008-04-25.tif",
+      "Lake Champlain_SR_B5_2008-05-02.tif",
+      "Lake Champlain_SR_B5_2008-05-11.tif",
+      "Lake Champlain_SR_B5_2008-05-18.tif",
+      "Lake Champlain_SR_B5_2008-05-27.tif",
+      "Lake Champlain_SR_B5_2008-06-03.tif",
+      "Lake Champlain_SR_B5_2008-06-12.tif",
+      "Lake Champlain_SR_B5_2008-07-05.tif",
+      "Lake Champlain_SR_B5_2008-07-14.tif",
+      "Lake Champlain_SR_B5_2008-07-30.tif",
+      "Lake Champlain_SR_B5_2008-08-06.tif",
+      "Lake Champlain_SR_B5_2008-08-15.tif",
+      "Lake Champlain_SR_B5_2008-08-22.tif",
+      "Lake Champlain_SR_B5_2008-08-31.tif",
+      "Lake Champlain_SR_B5_2008-09-07.tif",
+      "Lake Champlain_SR_B5_2008-09-16.tif",
+      "Lake Champlain_SR_B5_2008-09-23.tif",
+      "Lake Champlain_SR_B5_2008-10-09.tif",
+      "Lake Champlain_SR_B5_2008-10-18.tif",
+      "Lake Champlain_SR_B5_2008-11-03.tif",
+      "Lake Champlain_QA_PIXEL_2007-01-17.tif",
+      "Lake Champlain_QA_PIXEL_2007-01-24.tif",
+      "Lake Champlain_QA_PIXEL_2007-02-02.tif",
+      "Lake Champlain_QA_PIXEL_2007-02-09.tif",
+      "Lake Champlain_QA_PIXEL_2007-02-18.tif",
+      "Lake Champlain_QA_PIXEL_2007-02-25.tif",
+      "Lake Champlain_QA_PIXEL_2007-03-06.tif",
+      "Lake Champlain_QA_PIXEL_2007-03-29.tif",
+      "Lake Champlain_QA_PIXEL_2007-04-23.tif",
+      "Lake Champlain_QA_PIXEL_2007-04-30.tif",
+      "Lake Champlain_QA_PIXEL_2007-05-09.tif",
+      "Lake Champlain_QA_PIXEL_2007-05-25.tif",
+      "Lake Champlain_QA_PIXEL_2007-06-01.tif",
+      "Lake Champlain_QA_PIXEL_2007-06-17.tif",
+      "Lake Champlain_QA_PIXEL_2007-07-03.tif",
+      "Lake Champlain_QA_PIXEL_2007-08-04.tif",
+      "Lake Champlain_QA_PIXEL_2007-08-20.tif",
+      "Lake Champlain_QA_PIXEL_2007-09-05.tif",
+      "Lake Champlain_QA_PIXEL_2007-09-21.tif",
+      "Lake Champlain_QA_PIXEL_2007-09-30.tif",
+      "Lake Champlain_QA_PIXEL_2008-02-28.tif",
+      "Lake Champlain_QA_PIXEL_2008-03-24.tif",
+      "Lake Champlain_QA_PIXEL_2008-04-09.tif",
+      "Lake Champlain_QA_PIXEL_2008-04-16.tif",
+      "Lake Champlain_QA_PIXEL_2008-04-25.tif",
+      "Lake Champlain_QA_PIXEL_2008-05-02.tif",
+      "Lake Champlain_QA_PIXEL_2008-05-11.tif",
+      "Lake Champlain_QA_PIXEL_2008-05-18.tif",
+      "Lake Champlain_QA_PIXEL_2008-05-27.tif",
+      "Lake Champlain_QA_PIXEL_2008-06-03.tif",
+      "Lake Champlain_QA_PIXEL_2008-06-12.tif",
+      "Lake Champlain_QA_PIXEL_2008-07-05.tif",
+      "Lake Champlain_QA_PIXEL_2008-07-14.tif",
+      "Lake Champlain_QA_PIXEL_2008-07-30.tif",
+      "Lake Champlain_QA_PIXEL_2008-08-06.tif",
+      "Lake Champlain_QA_PIXEL_2008-08-15.tif",
+      "Lake Champlain_QA_PIXEL_2008-08-22.tif",
+      "Lake Champlain_QA_PIXEL_2008-08-31.tif",
+      "Lake Champlain_QA_PIXEL_2008-09-07.tif",
+      "Lake Champlain_QA_PIXEL_2008-09-16.tif",
+      "Lake Champlain_QA_PIXEL_2008-09-23.tif",
+      "Lake Champlain_QA_PIXEL_2008-10-09.tif",
+      "Lake Champlain_QA_PIXEL_2008-10-18.tif",
+      "Lake Champlain_QA_PIXEL_2008-11-03.tif"
+    ],
+    "choices": [
+      "2007 NDWI: 0.143 | 2008 NDWI: 0.050 | Change: -0.093 | Trend: Decreasing",
+      "2007 NDWI: 0.140 | 2008 NDWI: 0.055 | Change: -0.085 | Trend: Decreasing",
+      "2007 NDWI: 0.145 | 2008 NDWI: 0.060 | Change: -0.085 | Trend: Decreasing",
+      "2007 NDWI: 0.138 | 2008 NDWI: 0.048 | Change: -0.090 | Trend: Decreasing"
+    ],
+    "gold_answer": "A"
+  }
+}

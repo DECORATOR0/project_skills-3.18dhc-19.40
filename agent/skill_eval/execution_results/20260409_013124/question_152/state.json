@@ -1,0 +1,284 @@
+{
+  "task_id": "earth-bench-c-152",
+  "task_prompt": "Define hotspot areas as areas that are 50% above the average. Based on the vegetation coverage data of the Wind River Indian Preserve from January to December, 2021, give the time when the percentage of vegetation increase is the fastest.",
+  "env_result": {
+    "final_answer": "Blocked: this EarthBench task requires unavailable temporal tools (needed: compute_percentage_change; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.",
+    "final_choice_label": "",
+    "tool_trajectory": [],
+    "executor_summary": "",
+    "raw_executor_output": "{\n  \"thought\": \"The task requires analyzing vegetation coverage changes over time, which falls under the 'temporal' family. However, the allowed_tools only include 'read_file', and the skill cannot handle EarthBench image-analysis tasks without additional tools.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable temporal tools (needed: compute_percentage_change; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\"\n}",
+    "evaluation": {
+      "accuracy": 0.0,
+      "efficiency": 0.0,
+      "tool_any_order": 0.0,
+      "tool_in_order": 0.0,
+      "tool_exact_match": 0.0,
+      "parameter_accuracy": 0.0,
+      "task_success": false,
+      "notes": "Earth-Bench style trajectory/result metrics."
+    }
+  },
+  "gold_trajectory": [
+    {
+      "role": "user",
+      "content": "Define hotspot areas as areas that are 50% higher than the average value. Based on the vegetation coverage data of the Wind River Indian Preserve from January to December, 2021, calculate the changes in vegetation coverage data on adjacent dates, output a map, calculate the proportion of each hotspot area in the change map, and give the time with the largest proportion."
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_filelist",
+            "arguments": {
+              "dir_path": "benchmark/data/question152"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_filelist",
+      "content": {
+        "type": null,
+        "content": [
+          "Indian_NDVI.tif_2021-01-01.tif",
+          "Indian_NDVI.tif_2021-01-17.tif",
+          "Indian_NDVI.tif_2021-02-02.tif",
+          "Indian_NDVI.tif_2021-02-18.tif",
+          "Indian_NDVI.tif_2021-03-06.tif",
+          "Indian_NDVI.tif_2021-03-22.tif",
+          "Indian_NDVI.tif_2021-04-07.tif",
+          "Indian_NDVI.tif_2021-04-23.tif",
+          "Indian_NDVI.tif_2021-05-09.tif",
+          "Indian_NDVI.tif_2021-05-25.tif",
+          "Indian_NDVI.tif_2021-06-10.tif",
+          "Indian_NDVI.tif_2021-06-26.tif",
+          "Indian_NDVI.tif_2021-07-12.tif",
+          "Indian_NDVI.tif_2021-07-28.tif",
+          "Indian_NDVI.tif_2021-08-13.tif",
+          "Indian_NDVI.tif_2021-08-29.tif",
+          "Indian_NDVI.tif_2021-09-14.tif",
+          "Indian_NDVI.tif_2021-09-30.tif",
+          "Indian_NDVI.tif_2021-10-16.tif",
+          "Indian_NDVI.tif_2021-11-01.tif",
+          "Indian_NDVI.tif_2021-11-17.tif",
+          "Indian_NDVI.tif_2021-12-03.tif",
+          "Indian_NDVI.tif_2021-12-19.tif"
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calculate_tif_difference",
+            "arguments": {
+              "image_a_path": "benchmark/data/question152/Indian_NDVI.tif_2021-01-01.tif",
+              "image_b_path": "benchmark/data/question152/Indian_NDVI.tif_2021-01-17.tif",
+              "output_path": "change_map_2021-01-01_to_2021-01-17.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calculate_tif_difference",
+      "content": {
+        "type": null,
+        "content": "change_map_2021-01-01_to_2021-01-17.tif"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calculate_tif_difference",
+            "arguments": {
+              "image_a_path": "benchmark/data/question152/Indian_NDVI.tif_2021-01-17.tif",
+              "image_b_path": "benchmark/data/question152/Indian_NDVI.tif_2021-02-02.tif",
+              "output_path": "change_map_2021-01-17_to_2021-02-02.tif"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calculate_tif_difference",
+      "content": {
+        "type": null,
+        "content": "change_map_2021-01-17_to_2021-02-02.tif"
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean",
+            "arguments": {
+              "file_list": [
+                "out/question152/change_map_2021-01-01_to_2021-01-17.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean",
+      "content": {
+        "type": null,
+        "content": [
+          125.45
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean",
+            "arguments": {
+              "file_list": [
+                "out/question152/change_map_2021-01-17_to_2021-02-02.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean",
+      "content": {
+        "type": null,
+        "content": [
+          189.23
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_hotspot_percentage",
+            "arguments": {
+              "file_list": [
+                "out/question152/change_map_2021-01-01_to_2021-01-17.tif"
+              ],
+              "threshold": 188.175
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_hotspot_percentage",
+      "content": {
+        "type": null,
+        "content": [
+          0.694
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_hotspot_percentage",
+            "arguments": {
+              "file_list": [
+                "out/question152/change_map_2021-01-17_to_2021-02-02.tif"
+              ],
+              "threshold": 283.845
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_hotspot_percentage",
+      "content": {
+        "type": null,
+        "content": [
+          0.817
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "B"
+    }
+  ],
+  "gold_tool_names": [
+    "get_filelist",
+    "calculate_tif_difference",
+    "calculate_tif_difference",
+    "calc_batch_image_mean",
+    "calc_batch_image_mean",
+    "calc_batch_image_hotspot_percentage",
+    "calc_batch_image_hotspot_percentage"
+  ],
+  "active_skill_name": "earthbench-multimodal-geospatial-qa",
+  "task_context": {
+    "data_dir": "/mnt/lab/moestate/graduate_stu/dch_exp/alphaearth/Earth-Bench/question152",
+    "file_list": [
+      "Indian_NDVI.tif_2021-01-01.tif",
+      "Indian_NDVI.tif_2021-01-17.tif",
+      "Indian_NDVI.tif_2021-02-02.tif",
+      "Indian_NDVI.tif_2021-02-18.tif",
+      "Indian_NDVI.tif_2021-03-06.tif",
+      "Indian_NDVI.tif_2021-03-22.tif",
+      "Indian_NDVI.tif_2021-04-07.tif",
+      "Indian_NDVI.tif_2021-04-23.tif",
+      "Indian_NDVI.tif_2021-05-09.tif",
+      "Indian_NDVI.tif_2021-05-25.tif",
+      "Indian_NDVI.tif_2021-06-10.tif",
+      "Indian_NDVI.tif_2021-06-26.tif",
+      "Indian_NDVI.tif_2021-07-12.tif",
+      "Indian_NDVI.tif_2021-07-28.tif",
+      "Indian_NDVI.tif_2021-08-13.tif",
+      "Indian_NDVI.tif_2021-08-29.tif",
+      "Indian_NDVI.tif_2021-09-14.tif",
+      "Indian_NDVI.tif_2021-09-30.tif",
+      "Indian_NDVI.tif_2021-10-16.tif",
+      "Indian_NDVI.tif_2021-11-01.tif",
+      "Indian_NDVI.tif_2021-11-17.tif",
+      "Indian_NDVI.tif_2021-12-03.tif",
+      "Indian_NDVI.tif_2021-12-19.tif"
+    ],
+    "choices": [
+      "The time period with the largest hotspot proportion in the change map is 2021-07-12 to 2021-07-28, with a proportion of 0.694.",
+      "The time period with the largest hotspot proportion in the change map is 2021-01-17 to 2021-02-02, with a proportion of 0.817.",
+      "The time period with the largest hotspot proportion in the change map is 2021-08-29 to 2021-09-14, with a proportion of 0.726.",
+      "The time period with the largest hotspot proportion in the change map is 2021-11-17 to 2021-12-03, with a proportion of 0.756.",
+      "The time period with the largest hotspot proportion in the change map is 2021-09-30 to 2021-10-16, with a proportion of 0.806."
+    ],
+    "gold_answer": "B"
+  }
+}

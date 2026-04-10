@@ -1,0 +1,24 @@
+{
+  "text": "{\n  \"thought\": \"The task requires thermal LST computation, but allowed_tools only include read_file. This is a capability blocker as thermal processing tools are unavailable.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable thermal tools (needed: thermal_reducer; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\",\n  \"summary\": \"Capability blocker - required thermal processing tools missing when allowed_tools only contains read_file.\"\n}",
+  "raw_response": {
+    "stream": true,
+    "chunk_count": 29,
+    "finish_reason": "stop",
+    "last_chunk": {
+      "choices": [],
+      "object": "chat.completion.chunk",
+      "usage": {
+        "prompt_tokens": 2532,
+        "completion_tokens": 366,
+        "total_tokens": 2898,
+        "completion_tokens_details": {
+          "reasoning_tokens": 257
+        }
+      },
+      "created": 1775698289,
+      "system_fingerprint": null,
+      "model": "qwen3-8b",
+      "id": "chatcmpl-6372fba3-0440-9585-bb91-27275e0142bb"
+    }
+  }
+}

@@ -1,0 +1,274 @@
+{
+  "seed": 20260403,
+  "quota_scale": 1,
+  "selection_policy": "bucket_random_uniform_no_light_bias",
+  "smoke_policy": "per_modality_min_file_count_within_selected",
+  "bucket_quotas": {
+    "drought-tvdi": 2,
+    "ati": 3,
+    "thermal-retrieval": 5,
+    "derived-index": 3,
+    "timeseries-aggregation": 3,
+    "hotspot-fire": 2,
+    "arithmetic": 2,
+    "scene": 2,
+    "counting": 2,
+    "grounding-geometry": 3,
+    "area-change": 3
+  },
+  "modalities": {
+    "spectrum": [
+      {
+        "task_id": "earth-bench-c-2",
+        "original_question_id": "2",
+        "bucket": "thermal-retrieval",
+        "file_count": 2,
+        "prompt": "The Chengdu Plain Agricultural Zone in Sichuan Province  is a crucial rice-producing region in southwestern China. On July 12, 2022, researchers analyzed MODIS-derived Land Surface Temperature (LST) and Enhanced Vegetation Index (EVI) data to assess drought conditions across the Chengdu Plain. Using a dryness index threshold of > 0.75 to indicate moderate water stress for rice crops, calculate the percentage of this agricultural area exceeded the critical value."
+      },
+      {
+        "task_id": "earth-bench-c-8",
+        "original_question_id": "8",
+        "bucket": "drought-tvdi",
+        "file_count": 3,
+        "prompt": "Based on brightness temperature and reflectance data from Landsat 8 Band 10, Band 4, and Band 5 on August 11, 2021, in the Okavango Delta ,  calculate the proportion of the area had surface temperature below 300 K."
+      },
+      {
+        "task_id": "earth-bench-c-16",
+        "original_question_id": "16",
+        "bucket": "thermal-retrieval",
+        "file_count": 130,
+        "prompt": "Based on surface reflectance values from MODIS bands b02 (0.865 μm), b05 (1.240 μm), b17 (0.905 μm), b18 (0.936 μm), and b19 (0.940 μm) over the Turpan region in Xinjiang during 2020, estimate the daily atmospheric absorption indicator using the band ratio method. Calculate how many days showed values below 70% of the annual mean, indicating potential drought conditions."
+      },
+      {
+        "task_id": "earth-bench-c-25",
+        "original_question_id": "25",
+        "bucket": "thermal-retrieval",
+        "file_count": 5,
+        "prompt": "Apply the TES algorithm to ASTER thermal data from June 15, 2022, to estimate LST and emissivity across the Los Angeles metro area. Identify pixels with LST > 300 K and compute the mean emissivity variation (Δε) within those high-temperature zones."
+      },
+      {
+        "task_id": "earth-bench-c-42",
+        "original_question_id": "42",
+        "bucket": "ati",
+        "file_count": 244,
+        "prompt": "Using Apparent Thermal Inertia (ATI) calculated from satellite thermal bands and albedo, analyze and visualize the areas with lowest ATI values (below 1.0) indicating potential drought stress in the Sahel region for the month of May 2023. Calculate the proportion of the region is affected."
+      },
+      {
+        "task_id": "earth-bench-c-43",
+        "original_question_id": "43",
+        "bucket": "ati",
+        "file_count": 142,
+        "prompt": "Define a thermal anomaly as Apparent Thermal Inertia (ATI) below 1.2. Based on ATI data derived from daytime/nighttime brightness temperature and albedo in the agricultural region of Central Valley, California  during July 2022, count the number of days the anomaly occurs."
+      },
+      {
+        "task_id": "earth-bench-c-45",
+        "original_question_id": "45",
+        "bucket": "ati",
+        "file_count": 138,
+        "prompt": "Based on Apparent Thermal Inertia (ATI) and daytime/nighttime brightness temperatures over California  during August 2022 wildfire events, identify the percentage of the region with ATI values below 0.4, suggesting burned and dry soil."
+      },
+      {
+        "task_id": "earth-bench-c-59",
+        "original_question_id": "59",
+        "bucket": "thermal-retrieval",
+        "file_count": 12,
+        "prompt": "Using thermal Band 31 and Band 32 data over the Ganges Delta in 2020, apply the split-window method to estimate daily LST, then compute the average LST for autumn (September–November) to assess seasonal temperature characteristics."
+      },
+      {
+        "task_id": "earth-bench-c-75",
+        "original_question_id": "75",
+        "bucket": "thermal-retrieval",
+        "file_count": 5,
+        "prompt": "Using TTM-derived LST from ASTER Bands 10–12 on August 1, 2020, over the Mediterranean coastal area near Barcelona, compute the average land surface temperature of the defined region."
+      },
+      {
+        "task_id": "earth-bench-c-91",
+        "original_question_id": "91",
+        "bucket": "drought-tvdi",
+        "file_count": 8,
+        "prompt": "Calculate the proportion of pixels with TVDI > 0.7 in June and August 2023 over the Yellow River Basin, then compute the absolute difference between these two values."
+      }
+    ],
+    "products": [
+      {
+        "task_id": "earth-bench-c-105",
+        "original_question_id": "105",
+        "bucket": "arithmetic",
+        "file_count": 21,
+        "prompt": "Based on the nighttime light intensity in London in 2015 and 2020, and the non-residential building volume data for the same years, calculate the commercial energy saving in London over the five-year period, and give the percentage of change."
+      },
+      {
+        "task_id": "earth-bench-c-112",
+        "original_question_id": "112",
+        "bucket": "timeseries-aggregation",
+        "file_count": 12,
+        "prompt": "Analyze the nighttime light intensity trend in Leon (2013-2024) using linear regression."
+      },
+      {
+        "task_id": "earth-bench-c-119",
+        "original_question_id": "119",
+        "bucket": "hotspot-fire",
+        "file_count": 12,
+        "prompt": "Analyze vegetation hotspots in Shennongjia Forest Reserve (2022 growing season) and determine the peak coverage period."
+      },
+      {
+        "task_id": "earth-bench-c-134",
+        "original_question_id": "134",
+        "bucket": "derived-index",
+        "file_count": 132,
+        "prompt": "Evaluate Lake Champlain's water index changes between 2007-2008 using cloud-masked NDWI analysis."
+      },
+      {
+        "task_id": "earth-bench-c-136",
+        "original_question_id": "136",
+        "bucket": "derived-index",
+        "file_count": 51,
+        "prompt": "Determine the Dead Sea's peak water loss event (2008-2009) using NDWI threshold analysis."
+      },
+      {
+        "task_id": "earth-bench-c-147",
+        "original_question_id": "147",
+        "bucket": "timeseries-aggregation",
+        "file_count": 6,
+        "prompt": "Based on the nighttime light intensity data of Yangtze River Delta region of China from June to September 2014 and from June to September 2024. Calculate the average nighttime light intensity in 2014 and 2024, analyze the development status of the region and give the difference between the two."
+      },
+      {
+        "task_id": "earth-bench-c-152",
+        "original_question_id": "152",
+        "bucket": "hotspot-fire",
+        "file_count": 23,
+        "prompt": "Define hotspot areas as areas that are 50% above the average. Based on the vegetation coverage data of the Wind River Indian Preserve from January to December, 2021, give the time when the percentage of vegetation increase is the fastest."
+      },
+      {
+        "task_id": "earth-bench-c-164",
+        "original_question_id": "164",
+        "bucket": "derived-index",
+        "file_count": 12,
+        "prompt": "Based on the sur_refl_b04 and sur_refl_b06 data in Greenland in 2020 and 2024, calculate the NDSI of the region. Compare the magnitude of the NDSI of the two years to assess the change in snow cover across the two years, and report the percentage change."
+      },
+      {
+        "task_id": "earth-bench-c-175",
+        "original_question_id": "175",
+        "bucket": "timeseries-aggregation",
+        "file_count": 10,
+        "prompt": "Based on the B10 band data at Reykholt from January 1 to March 30, 2025, and give the date of the lowest surface temperatures."
+      },
+      {
+        "task_id": "earth-bench-c-187",
+        "original_question_id": "187",
+        "bucket": "arithmetic",
+        "file_count": 16,
+        "prompt": "Based on the built_volume_total and built_volume_nres data of Shanghai from 1980 to 2025, calculate the linear trend of the overall change in residential volume in Shanghai from 1985 to 2020"
+      }
+    ],
+    "rgb": [
+      {
+        "task_id": "earth-bench-c-192",
+        "original_question_id": "192",
+        "bucket": "scene",
+        "file_count": 12,
+        "prompt": "Based on the following images, every image belongs to {Airport, BareLand, BaseballField, Beach, Bridge, Center, Church, Commercial, DenseResidential, Desert, Farmland, Forest, Industrial, Meadow, MediumResidential, Mountain, Park, Parking, Playground, Pond, Port, RailwayStation, Resort, River, School, SparseResidential, Square, Stadium, StorageTanks, Viaduct}, determine the number of images captured in bridge areas."
+      },
+      {
+        "task_id": "earth-bench-c-193",
+        "original_question_id": "193",
+        "bucket": "scene",
+        "file_count": 12,
+        "prompt": "Based on the following images, every image belongs to {Airport, BareLand, BaseballField, Beach, Bridge, Center, Church, Commercial, DenseResidential, Desert, Farmland, Forest, Industrial, Meadow, MediumResidential, Mountain, Park, Parking, Playground, Pond, Port, RailwayStation, Resort, River, School, SparseResidential, Square, Stadium, StorageTanks, Viaduct}, determine the number of images captured in church areas."
+      },
+      {
+        "task_id": "earth-bench-c-205",
+        "original_question_id": "205",
+        "bucket": "counting",
+        "file_count": 3,
+        "prompt": "Energy analysts are reviewing satellite images to evaluate industrial storage activity. Rank the images based on how many storage tanks are present in each."
+      },
+      {
+        "task_id": "earth-bench-c-206",
+        "original_question_id": "206",
+        "bucket": "counting",
+        "file_count": 3,
+        "prompt": "To promote equal access to sports facilities, the local government wants to identify areas that may be underserved. Based on the number of basketball courts in each aerial image, sort the regions accordingly."
+      },
+      {
+        "task_id": "earth-bench-c-210",
+        "original_question_id": "210",
+        "bucket": "area-change",
+        "file_count": 1,
+        "prompt": "As part of a regional sports infrastructure audit, you are tasked with estimating their total area using bounding boxes (GSD = 0.13 m/px)."
+      },
+      {
+        "task_id": "earth-bench-c-223",
+        "original_question_id": "223",
+        "bucket": "area-change",
+        "file_count": 4,
+        "prompt": "Following a natural disaster, authorities are comparing the impact on Region A and Region B. Based on satellite images taken before and after the event, determine which region experienced more severe building damage."
+      },
+      {
+        "task_id": "earth-bench-c-225",
+        "original_question_id": "225",
+        "bucket": "area-change",
+        "file_count": 2,
+        "prompt": "Based on satellite imagery before and after the natural disaster, determine how many buildings were completely destroyed using pre- and post-disaster satellite images."
+      },
+      {
+        "task_id": "earth-bench-c-228",
+        "original_question_id": "228",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Environmental analysts are monitoring storage infrastructure. Based on the following images, calculate the centroid coordinates of the largest white-colored storage tank located on the northernmost side of the image."
+      },
+      {
+        "task_id": "earth-bench-c-236",
+        "original_question_id": "236",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Based on the following images, what is the distance between the two farthest plane in the image? (GSD = 0.14 m/px)"
+      },
+      {
+        "task_id": "earth-bench-c-241",
+        "original_question_id": "241",
+        "bucket": "grounding-geometry",
+        "file_count": 1,
+        "prompt": "Determine the bounding boxes of the farthest pair of harbor in the image."
+      }
+    ]
+  },
+  "all_task_ids": [
+    "8",
+    "91",
+    "42",
+    "43",
+    "45",
+    "2",
+    "16",
+    "25",
+    "59",
+    "75",
+    "134",
+    "136",
+    "164",
+    "112",
+    "147",
+    "175",
+    "119",
+    "152",
+    "105",
+    "187",
+    "192",
+    "193",
+    "205",
+    "206",
+    "228",
+    "236",
+    "241",
+    "210",
+    "223",
+    "225"
+  ],
+  "smoke_task_ids": [
+    "2",
+    "147",
+    "210"
+  ]
+}

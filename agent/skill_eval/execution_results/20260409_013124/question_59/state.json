@@ -1,0 +1,180 @@
+{
+  "task_id": "earth-bench-c-59",
+  "task_prompt": "Using thermal Band 31 and Band 32 data over the Ganges Delta in 2020, apply the split-window method to estimate daily LST, then compute the average LST for autumn (September–November) to assess seasonal temperature characteristics.",
+  "env_result": {
+    "final_answer": "Blocked: this EarthBench task requires unavailable thermal tools (needed: split-window; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.",
+    "final_choice_label": "",
+    "tool_trajectory": [],
+    "executor_summary": "",
+    "raw_executor_output": "{\n  \"thought\": \"The task requires thermal processing tools for split-window LST estimation, but allowed_tools only include read_file. This is a capability blocker.\",\n  \"action\": \"final\",\n  \"final_answer\": \"Blocked: this EarthBench task requires unavailable thermal tools (needed: split-window; allowed: [read_file]). I cannot safely derive the evidence or guess the answer.\"\n}",
+    "evaluation": {
+      "accuracy": 0.0,
+      "efficiency": 0.0,
+      "tool_any_order": 0.0,
+      "tool_in_order": 0.0,
+      "tool_exact_match": 0.0,
+      "parameter_accuracy": 0.0,
+      "task_success": false,
+      "notes": "Earth-Bench style trajectory/result metrics."
+    }
+  },
+  "gold_trajectory": [
+    {
+      "role": "user",
+      "content": "Based on thermal Band 31 and Band 32 data over the Ganges Delta region in 2020, first list the input TIFF files, then estimate land surface temperature (LST) using the split-window method. Next, classify the data by season based on acquisition dates, and calculate the average LST for the autumn period (September to November) to characterize seasonal temperature conditions."
+    },
+    {
+      "role": "assistant",
+      "thought": "First, list the input TIFF files",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_filelist",
+            "arguments": {
+              "dir_path": "benchmark/data/question59"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_filelist",
+      "content": {
+        "type": "list(str)",
+        "content": [
+          "2020_09_09_0420_BT_31.tif",
+          "2020_09_09_0420_BT_32.tif",
+          "2020_09_23_0435_BT_31.tif",
+          "2020_09_23_0435_BT_32.tif",
+          "2020_10_07_0445_BT_31.tif",
+          "2020_10_07_0445_BT_32.tif",
+          "2020_10_21_0500_BT_31.tif",
+          "2020_10_21_0500_BT_32.tif",
+          "2020_11_04_0510_BT_31.tif",
+          "2020_11_04_0510_BT_32.tif",
+          "2020_11_18_0520_BT_31.tif",
+          "2020_11_18_0520_BT_32.tif"
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": "For each autumn day, calculate LST",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lst_multi_channel",
+            "arguments": {
+              "band31_path": [
+                "benchmark/data/question59/2020_09_09_0420_BT_31.tif",
+                "benchmark/data/question59/2020_09_23_0435_BT_31.tif",
+                "benchmark/data/question59/2020_10_07_0445_BT_31.tif",
+                "benchmark/data/question59/2020_10_21_0500_BT_31.tif",
+                "benchmark/data/question59/2020_11_04_0510_BT_31.tif",
+                "benchmark/data/question59/2020_11_18_0520_BT_31.tif"
+              ],
+              "band32_path": [
+                "benchmark/data/question59/2020_09_09_0420_BT_32.tif",
+                "benchmark/data/question59/2020_09_23_0435_BT_32.tif",
+                "benchmark/data/question59/2020_10_07_0445_BT_32.tif",
+                "benchmark/data/question59/2020_10_21_0500_BT_32.tif",
+                "benchmark/data/question59/2020_11_04_0510_BT_32.tif",
+                "benchmark/data/question59/2020_11_18_0520_BT_32.tif"
+              ],
+              "output_path": [
+                "question59/lst_2020_09_09.tif",
+                "question59/lst_2020_09_23.tif",
+                "question59/lst_2020_10_07.tif",
+                "question59/lst_2020_10_21.tif",
+                "question59/lst_2020_11_04.tif",
+                "question59/lst_2020_11_18.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "lst_multi_channel",
+      "content": {
+        "type": "str",
+        "content": [
+          "benchmark/out/question59/lst_2020_09_09.tif",
+          "benchmark/out/question59/lst_2020_09_23.tif",
+          "benchmark/out/question59/lst_2020_10_07.tif",
+          "benchmark/out/question59/lst_2020_10_21.tif",
+          "benchmark/out/question59/lst_2020_11_04.tif",
+          "benchmark/out/question59/lst_2020_11_18.tif"
+        ]
+      }
+    },
+    {
+      "role": "assistant",
+      "thought": "For each autumn day, calculate the mean LST value",
+      "tool_calls": [
+        {
+          "type": "function",
+          "function": {
+            "name": "calc_batch_image_mean_mean",
+            "arguments": {
+              "file_list": [
+                "benchmark/out/question59/lst_2020_09_09.tif",
+                "benchmark/out/question59/lst_2020_09_23.tif",
+                "benchmark/out/question59/lst_2020_10_07.tif",
+                "benchmark/out/question59/lst_2020_10_21.tif",
+                "benchmark/out/question59/lst_2020_11_04.tif",
+                "benchmark/out/question59/lst_2020_11_18.tif"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "calc_batch_image_mean_mean",
+      "content": {
+        "type": "float",
+        "content": 284.05
+      }
+    },
+    {
+      "role": "assistant",
+      "content": "C"
+    }
+  ],
+  "gold_tool_names": [
+    "get_filelist",
+    "lst_multi_channel",
+    "calc_batch_image_mean_mean"
+  ],
+  "active_skill_name": "earthbench-multimodal-geospatial-qa",
+  "task_context": {
+    "data_dir": "/mnt/lab/moestate/graduate_stu/dch_exp/alphaearth/Earth-Bench/question59",
+    "file_list": [
+      "2020_09_09_0420_BT_31.tif",
+      "2020_09_09_0420_BT_32.tif",
+      "2020_09_23_0435_BT_31.tif",
+      "2020_09_23_0435_BT_32.tif",
+      "2020_10_07_0445_BT_31.tif",
+      "2020_10_07_0445_BT_32.tif",
+      "2020_10_21_0500_BT_31.tif",
+      "2020_10_21_0500_BT_32.tif",
+      "2020_11_04_0510_BT_31.tif",
+      "2020_11_04_0510_BT_32.tif",
+      "2020_11_18_0520_BT_31.tif",
+      "2020_11_18_0520_BT_32.tif"
+    ],
+    "choices": [
+      "281.72 K",
+      "286.13 K",
+      "284.05 K",
+      "288.67 K"
+    ],
+    "gold_answer": "C"
+  }
+}

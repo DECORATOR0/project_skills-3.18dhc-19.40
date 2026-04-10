@@ -1,0 +1,45 @@
+# ──────────────────────────────────────────────────────────
+# project_nlrl_batch_3 dependencies  (Linux / conda + pip)
+# ──────────────────────────────────────────────────────────
+#
+# Recommended install order:
+#   1. Create / activate conda environment:
+#        conda create -n dch_skill python=3.11 -y
+#        conda activate dch_skill
+#
+#   2. Install GDAL, rasterio, numpy, scipy via conda-forge
+#      (binary wheels with native libs; pip versions may fail):
+#        conda install -c conda-forge gdal=3.12 rasterio=1.4 numpy scipy -y
+#
+#   3. Install remaining packages via pip:
+#        pip install -r requirements.txt
+# ──────────────────────────────────────────────────────────
+
+# --- Core geospatial (install via conda-forge first, see above) ---
+# GDAL==3.12.2
+# rasterio==1.4.4
+# numpy==2.4.3
+# scipy==1.17.1
+
+# --- Image processing ---
+opencv-python-headless==4.13.0.92
+scikit-image==0.26.0
+matplotlib==3.10.8
+
+# --- Data & statistics ---
+pandas==3.0.2
+statsmodels==0.14.6
+ruptures==1.1.10
+
+# --- MCP tool server ---
+fastmcp==3.2.0
+
+# --- LLM / API ---
+openai==2.30.0
+httpx==0.28.1
+
+# --- Progress ---
+tqdm>=4.66
+
+# --- Serialization ---
+PyYAML==6.0.3

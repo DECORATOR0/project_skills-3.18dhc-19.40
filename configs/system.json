@@ -1,0 +1,44 @@
+{
+  "actor": {
+    "model": "gpt-5.4",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "sk-3JEGnQNONvk5FgB21in1J1E2puUKjOaouxTQgP2Nr2o1FnrB",
+    "temperature": 0.3,
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": false
+  },
+  "critic": {
+    "model": "gpt-5.4",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "sk-3JEGnQNONvk5FgB21in1J1E2puUKjOaouxTQgP2Nr2o1FnrB",
+    "temperature": 0.3,
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": false
+  },
+  "executor": {
+    "model": "qwen3-8b",
+    "base_url": "http://35.220.164.252:3888/v1",
+    "api_key": "",
+    "temperature": 0.1,
+    "timeout_seconds": 180,
+    "enable_thinking": true,
+    "stream": true
+  },
+  "paths": {
+    "workspace_root": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3",
+    "prompt_root": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/prompts",
+    "run_root": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/runs",
+    "skill_library_root": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/skill_library",
+    "experience_buffer_path": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/runtime_state/experience_buffer.jsonl",
+    "dataset_path": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/benchmark/question.json",
+    "converted_dataset_path": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/data/converted/earth_bench_skill_rl/question.json"
+  },
+  "runtime": {
+    "max_executor_steps": 30,
+    "iterations_per_batch": 2,
+    "python_executable": "python",
+    "shell_program": "/bin/bash"
+  }
+}

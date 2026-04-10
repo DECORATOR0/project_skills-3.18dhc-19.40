@@ -1,0 +1,19 @@
+{
+  "count": 30,
+  "skill_name": "earthbench-multimodal-geospatial-qa",
+  "skill_library_root": "/mnt/lab/moestate/graduate_stu/dch_exp/skill/project_nlrl_batch_3/runs/train_batch_30/batch_state/skill_library",
+  "avg_accuracy": 0.0,
+  "avg_efficiency": 0.0,
+  "avg_tool_any_order": 0.0,
+  "avg_tool_in_order": 0.0,
+  "avg_tool_exact_match": 0.0,
+  "avg_parameter_accuracy": 0.0,
+  "named_avg_metrics": {
+    "TAO": 0.0,
+    "TIO": 0.0,
+    "TEM": 0.0,
+    "Efficiency": 0.0,
+    "Parameters": 0.0,
+    "Accuracy": 0.0
+  }
+}
