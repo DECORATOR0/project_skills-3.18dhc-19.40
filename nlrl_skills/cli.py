@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_local.add_argument("--run-name", help="Optional run folder name")
     train_local.add_argument(
         "--bootstrap-snapshot",
-        help="Path to an existing skill snapshot directory (e.g. runs/train_batch_30_v4/iteration_00/skill_snapshot). "
+        help="Path to an existing skill snapshot directory (e.g. runs/2026/4/2026-4-11/train_batch_30_v4/iteration_00/skill_snapshot). "
              "If provided, copies this snapshot as the initial skill instead of running LLM bootstrap.",
     )
 

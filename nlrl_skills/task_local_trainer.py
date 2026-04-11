@@ -21,17 +21,25 @@ from .prompting import render_prompt
 from .schemas import DatasetTask, LLMMessage, SkillDetail, to_dict
 from .skills import discover_skills, load_skill_detail, parse_skill_phases, reset_experience_buffer, reset_skill_library, write_skill_bundle
 from .task_buckets import build_task_set_manifest, classify_task_bucket
-from .utils import append_jsonl, ensure_dir, ensure_empty_dir, slugify, utc_timestamp, write_json
+from .utils import append_jsonl, ensure_dir, prepare_dated_run_dir, slugify, utc_timestamp, write_json
 
 
 class TaskLocalParallelTrainer:
     DEFAULT_BATCH_SEED = 20260403
-    MODALITY_BATCH_SIZE = 10
-    TOTAL_BATCH_SIZE = 30
+    DEFAULT_MODALITY_BATCH_SIZE = 10
     MODALITY_ORDER = ("spectrum", "products", "rgb")
 
     def __init__(self, config: SystemConfig):
         self.config = config
+
+    def _modality_batch_size(self) -> int:
+        size = int(getattr(self.config.runtime, "modality_batch_size", self.DEFAULT_MODALITY_BATCH_SIZE))
+        if size <= 0:
+            raise ValueError("runtime.modality_batch_size must be >= 1")
+        return size
+
+    def _total_batch_size(self) -> int:
+        return self._modality_batch_size() * len(self.MODALITY_ORDER)
 
     @staticmethod
     def _metric_aliases() -> dict[str, str]:
@@ -71,8 +79,7 @@ class TaskLocalParallelTrainer:
         }
 
     def prepare_run_dir(self, run_name: str | None = None) -> Path:
-        run_dir = self.config.run_root / (run_name or f"task_local_parallel_batch_{utc_timestamp()}")
-        ensure_empty_dir(run_dir)
+        run_dir = prepare_dated_run_dir(self.config.run_root, run_name=run_name)
         write_json(
             run_dir / "config_snapshot.json",
             {
@@ -80,8 +87,8 @@ class TaskLocalParallelTrainer:
                 "base_config": to_dict(self.config),
                 "batch_policy": {
                     "seed": self.DEFAULT_BATCH_SEED,
-                    "modalities": {modality: self.MODALITY_BATCH_SIZE for modality in self.MODALITY_ORDER},
-                    "batch_size": self.TOTAL_BATCH_SIZE,
+                    "modalities": {modality: self._modality_batch_size() for modality in self.MODALITY_ORDER},
+                    "batch_size": self._total_batch_size(),
                 },
             },
         )
@@ -150,17 +157,19 @@ class TaskLocalParallelTrainer:
         }
 
     def _validate_batch_shape(self, selected_tasks: list[DatasetTask]) -> None:
-        if len(selected_tasks) != self.TOTAL_BATCH_SIZE:
+        total_batch_size = self._total_batch_size()
+        modality_batch_size = self._modality_batch_size()
+        if len(selected_tasks) != total_batch_size:
             raise ValueError(
-                f"train-task-local-parallel now requires a fixed batch of {self.TOTAL_BATCH_SIZE} tasks; got {len(selected_tasks)}."
+                f"train-task-local-parallel now requires a fixed batch of {total_batch_size} tasks; got {len(selected_tasks)}."
             )
         modality_counts: dict[str, int] = defaultdict(int)
         for task in selected_tasks:
             modality_counts[classify_task_bucket(task).modality] += 1
         for modality in self.MODALITY_ORDER:
-            if modality_counts.get(modality, 0) != self.MODALITY_BATCH_SIZE:
+            if modality_counts.get(modality, 0) != modality_batch_size:
                 raise ValueError(
-                    f"train-task-local-parallel requires exactly {self.MODALITY_BATCH_SIZE} `{modality}` tasks; "
+                    f"train-task-local-parallel requires exactly {modality_batch_size} `{modality}` tasks; "
                     f"got {modality_counts.get(modality, 0)}."
                 )
 
@@ -436,6 +445,7 @@ class TaskLocalParallelTrainer:
         self,
         *,
         selected_tasks: list[DatasetTask],
+        concurrency: int,
         active_skill: SkillDetail,
         batch_config: SystemConfig,
         shared_eo_runtime,
@@ -511,15 +521,16 @@ class TaskLocalParallelTrainer:
             )
             return record
 
-        concurrency = len(selected_tasks)
-        records: list[dict | None] = [None] * concurrency
-        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        task_count = len(selected_tasks)
+        max_workers = max(1, min(concurrency, task_count))
+        records: list[dict | None] = [None] * task_count
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_to_idx = {
                 pool.submit(_run_single_task, task_index, task): task_index - 1
                 for task_index, task in enumerate(selected_tasks, start=1)
             }
-            desc = f"Iter {iteration_index:02d} Executor ({concurrency} tasks)"
-            with tqdm(total=concurrency, desc=desc, unit="task") as pbar:
+            desc = f"Iter {iteration_index:02d} Executor ({task_count} tasks, workers={max_workers})"
+            with tqdm(total=task_count, desc=desc, unit="task") as pbar:
                 for future in as_completed(future_to_idx):
                     idx = future_to_idx[future]
                     try:
@@ -572,6 +583,7 @@ class TaskLocalParallelTrainer:
 
         logger.info("Prepared batch run at %s", run_dir)
         logger.info("Selected %d tasks. Single-skill batch RL with k=%d iterations.", len(selected_tasks), batch_config.runtime.iterations_per_batch)
+        logger.info("Executor worker concurrency capped at %d.", max(1, concurrency))
         self._log_event(run_dir, "run_start", run_directory=str(run_dir), batch_size=len(selected_tasks))
 
         selected_payload = []
@@ -632,6 +644,7 @@ class TaskLocalParallelTrainer:
 
             records = self._run_batch_env(
                 selected_tasks=selected_tasks,
+                concurrency=concurrency,
                 active_skill=active_skill,
                 batch_config=batch_config,
                 shared_eo_runtime=shared_eo_runtime,

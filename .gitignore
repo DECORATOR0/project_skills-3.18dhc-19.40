@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local runtime and experiment outputs
+out/
+tmp/
+runtime_state/
+benchmark/out/
+benchmark/data/
+benchmark/question.json
+benchmark/model_results.csv
+
+# Training and evaluation artifacts
+runs/
+runs_*/
+runs_gpu*/
+agent/skill_eval/execution_results*/
+agent/skill_eval/*.log
+
+# Local notes media
+/实验设计与迭代/
+/实验设计与迭代/**/*.m4a
+
+# Local env and archive payloads
+/configs/condarc-no-proxy.yaml
+/configs/system-train-xsy*.json
+/dhc-4.11prompt迭代/
+/dhc-4.11prompt迭代/source_zips/
+/dhc-4.11prompt迭代/reference/earth_agent/

@@ -97,7 +97,18 @@ def calculate_batch_ndvi(
         for nir_path, red_path, out_path in zip(input_nir_paths, input_red_paths, output_paths)
     ]
 
+@mcp.tool(description="""
+Calculate the Normalized Difference Water Index (NDWI) from input raster files
+and save the result to a specified output path.
 
+Parameters:
+    input_nir_path (str): Path to the Near-Infrared (NIR) band raster file.
+    input_swir_path (str): Path to the Short-Wave Infrared (SWIR) band raster file.
+    output_path (str): relative path for the output raster file, e.g. "question17/ndwi_2022-01-16.tif"
+
+Returns:
+    str: Path to the saved NDWI file.
+""")
 def calculate_ndwi(input_nir_path, input_swir_path, output_path):
     """
     Calculate the Normalized Difference Water Index (NDWI) from input raster files

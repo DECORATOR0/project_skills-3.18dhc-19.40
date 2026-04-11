@@ -165,10 +165,10 @@ prompts/              Prompt templates
   bootstrap_batch_skill_library.md  Bootstrap user prompt (single skill)
 data/converted/       Normalized training data
 benchmark/            Benchmark source data and data root pointer
-runs/                 Training artifacts (auto-created)
+runs/                 Training artifacts (auto-created; grouped by date under year/month/day)
 ```
 
-The skill is stored per-run under `runs/<run>/batch_state/skill_library/`.
+The skill is stored per-run under `runs/<year>/<month>/<yyyy-m-d>/<run>/batch_state/skill_library/`.
 
 ## Evaluation Metrics
 
@@ -240,7 +240,7 @@ python -m nlrl_skills.cli --config configs/system.json train-task-local-parallel
   --run-name train_batch_30_custom
 ```
 
-Training artifacts are written to `runs/<run_name>/`:
+Training artifacts are written to `runs/<year>/<month>/<yyyy-m-d>/<run_name>/`:
 - `run_summary.json`: final summary with metrics and history poll
 - `history_poll.json`: accumulated problems from each iteration
 - `iteration_XX/`: per-iteration traces, critic reward, actor decision
@@ -252,7 +252,7 @@ Training artifacts are written to `runs/<run_name>/`:
 ```bash
 python -m agent.skill_eval.run_skill_executor \
   --config configs/system.json \
-  --skill-dir runs/train_batch_30/batch_state/skill_library \
+  --skill-dir runs/<year>/<month>/<yyyy-m-d>/train_batch_30/batch_state/skill_library \
   --all \
   --output agent/skill_eval/execution_results
 ```
@@ -262,7 +262,7 @@ Single question:
 ```bash
 python -m agent.skill_eval.run_skill_executor \
   --config configs/system.json \
-  --skill-dir runs/train_batch_30/batch_state/skill_library \
+  --skill-dir runs/<year>/<month>/<yyyy-m-d>/train_batch_30/batch_state/skill_library \
   --question 226
 ```
 
@@ -327,7 +327,7 @@ LLM 调用不限制上下文 tokens（`max_tokens` 和 `max_context_chars` 均�
   - 训练：外层 RL iteration 进度条 + 每轮内 executor batch 进度条（含 done/success 统计）。
   - 评估：全部题目的完成进度条。
 - **日志落盘**：所有日志同时输出到终端（`StreamHandler`）和文件（`FileHandler`）。
-  - 训练日志：`runs/<run_name>/run.log`
+  - 训练日志：`runs/<year>/<month>/<yyyy-m-d>/<run_name>/run.log`
   - 评估日志：`<output_dir>/<timestamp>/run.log`
-  - 事件记录：`runs/<run_name>/events.jsonl`（结构化 JSONL，每个 task/iteration 事件一行）
+  - 事件记录：`runs/<year>/<month>/<yyyy-m-d>/<run_name>/events.jsonl`（结构化 JSONL，每个 task/iteration 事件一行）
   - LLM 调用记录：每次 LLM 请求/响应以 JSON 文件落盘到对应 step 目录

@@ -37,6 +37,7 @@ class PathsConfig:
 class RuntimeConfig:
     max_executor_steps: int = 20
     iterations_per_batch: int = 5
+    modality_batch_size: int = 10
     max_context_chars: int = 0
     python_executable: str = "python"
     shell_program: str = "/bin/bash"
@@ -159,6 +160,7 @@ def load_system_config(path: str | Path) -> SystemConfig:
     runtime_env_overrides = {
         "max_executor_steps": _env_override("NLRL_RUNTIME_MAX_EXECUTOR_STEPS"),
         "iterations_per_batch": _env_override("NLRL_RUNTIME_ITERATIONS_PER_BATCH"),
+        "modality_batch_size": _env_override("NLRL_RUNTIME_MODALITY_BATCH_SIZE"),
         "max_context_chars": _env_override("NLRL_RUNTIME_MAX_CONTEXT_CHARS"),
         "python_executable": _env_override("NLRL_RUNTIME_PYTHON_EXECUTABLE"),
         "shell_program": _env_override("NLRL_RUNTIME_SHELL_PROGRAM"),
@@ -169,6 +171,7 @@ def load_system_config(path: str | Path) -> SystemConfig:
         if key in {
             "max_executor_steps",
             "iterations_per_batch",
+            "modality_batch_size",
             "max_context_chars",
         }:
             runtime_raw[key] = int(value)

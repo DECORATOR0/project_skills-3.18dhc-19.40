@@ -236,14 +236,19 @@ class EOToolRuntime:
             parsed = {name: desc for name, desc in self._parse_tool_nodes(source_path)}
             module = self._load_module(module_file)
             for name, value in vars(module).items():
-                if name not in parsed or not inspect.isfunction(value):
+                if name not in parsed:
+                    continue
+                # fastmcp>=2 decorates tools into FunctionTool objects instead of
+                # leaving plain functions bound on the module.
+                callable_obj = value if inspect.isfunction(value) else getattr(value, "fn", None)
+                if not inspect.isfunction(callable_obj):
                     continue
                 desc = parsed[name]
                 self._registry[name] = ToolSpec(
                     name=name,
                     description=desc or f"EO tool {name}",
-                    parameters=self._schema_from_signature(value),
-                    callable=value,
+                    parameters=self._schema_from_signature(callable_obj),
+                    callable=callable_obj,
                     source=f"agent/tools/{module_file}",
                 )
 

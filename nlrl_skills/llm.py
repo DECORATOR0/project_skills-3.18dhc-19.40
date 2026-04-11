@@ -190,6 +190,31 @@ class OpenAICompatibleLLM:
                         return text
         raise RuntimeError("No output_text found in responses SSE response.")
 
+    def _extract_responses_event_text(self, payload: dict[str, Any]) -> str:
+        payload_type = str(payload.get("type", ""))
+        if payload_type == "response.output_text.done":
+            text = payload.get("text")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+        if payload_type == "response.content_part.done":
+            part = payload.get("part", {})
+            if isinstance(part, dict) and part.get("type") == "output_text":
+                text = part.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+        if payload_type == "response.output_item.done":
+            item = payload.get("item", {})
+            if isinstance(item, dict):
+                for content in item.get("content", []):
+                    if not isinstance(content, dict):
+                        continue
+                    if content.get("type") != "output_text":
+                        continue
+                    text = content.get("text")
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
+        return ""
+
     def _extract_responses_error(self, payload: dict[str, Any]) -> str:
         error = payload.get("error")
         if isinstance(error, dict):
@@ -207,6 +232,8 @@ class OpenAICompatibleLLM:
     def _parse_responses_sse_text(self, raw_text: str, request_payload: dict[str, Any]) -> LLMCallResult:
         last_payload: dict[str, Any] | None = None
         completed_payload: dict[str, Any] | None = None
+        streamed_text_parts: list[str] = []
+        event_text_candidates: list[str] = []
         for block in raw_text.split("\n\n"):
             lines = block.strip().splitlines()
             if not lines:
@@ -220,6 +247,14 @@ class OpenAICompatibleLLM:
                 continue
             last_payload = payload
             payload_type = str(payload.get("type", ""))
+            if payload_type == "response.output_text.delta":
+                delta = payload.get("delta")
+                if isinstance(delta, str) and delta:
+                    streamed_text_parts.append(delta)
+            else:
+                candidate_text = self._extract_responses_event_text(payload)
+                if candidate_text:
+                    event_text_candidates.append(candidate_text)
             if payload_type == "response.completed":
                 completed_payload = payload
                 break
@@ -230,7 +265,18 @@ class OpenAICompatibleLLM:
             if last_payload is not None:
                 error_message += f" Last payload: {self._extract_responses_error(last_payload)}"
             raise RuntimeError(error_message)
-        text = self._extract_responses_output_text(completed_payload)
+        try:
+            text = self._extract_responses_output_text(completed_payload)
+        except RuntimeError:
+            text = ""
+            for candidate in reversed(event_text_candidates):
+                if candidate:
+                    text = candidate
+                    break
+            if not text:
+                text = "".join(streamed_text_parts).strip()
+            if not text:
+                raise
         text = re.sub(r"(?is)^```(?:json)?\s*|\s*```$", "", text or "").strip()
         return LLMCallResult(text=text, raw_response=completed_payload, request_payload=request_payload)
 

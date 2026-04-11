@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+_RUN_DATE_TOKEN_RE = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)")
+
 
 def utc_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -21,6 +23,54 @@ def ensure_empty_dir(path: Path) -> Path:
         raise FileExistsError(f"Directory already exists and is not empty: {path}")
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def resolve_run_calendar_parts(
+    *,
+    run_name: str | None = None,
+    path: Path | None = None,
+    dt: datetime | None = None,
+) -> tuple[str, str, str]:
+    if run_name:
+        match = _RUN_DATE_TOKEN_RE.search(run_name)
+        if match:
+            year = int(match.group(1))
+            month = int(match.group(2))
+            day = int(match.group(3))
+            return str(year), str(month), f"{year}-{month}-{day}"
+
+    reference_dt = dt
+    if reference_dt is None and path is not None:
+        reference_dt = datetime.fromtimestamp(path.stat().st_mtime)
+    if reference_dt is None:
+        reference_dt = datetime.now()
+    return (
+        str(reference_dt.year),
+        str(reference_dt.month),
+        f"{reference_dt.year}-{reference_dt.month}-{reference_dt.day}",
+    )
+
+
+def dated_run_parent(
+    run_root: Path,
+    *,
+    run_name: str | None = None,
+    path: Path | None = None,
+    dt: datetime | None = None,
+) -> Path:
+    year, month, day_label = resolve_run_calendar_parts(run_name=run_name, path=path, dt=dt)
+    return run_root / year / month / day_label
+
+
+def prepare_dated_run_dir(
+    run_root: Path,
+    *,
+    run_name: str | None = None,
+    dt: datetime | None = None,
+) -> Path:
+    resolved_run_name = run_name or f"task_local_parallel_batch_{utc_timestamp()}"
+    run_dir = dated_run_parent(run_root, run_name=resolved_run_name, dt=dt) / resolved_run_name
+    return ensure_empty_dir(run_dir)
 
 
 def read_text(path: Path) -> str:
