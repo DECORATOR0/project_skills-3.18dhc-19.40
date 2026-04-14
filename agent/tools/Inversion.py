@@ -3,7 +3,13 @@ import argparse
 from pathlib import Path
 from fastmcp import FastMCP
 
-from utils import read_image, read_image_uint8
+from utils import (
+    batch_size_from_values,
+    collapse_batch_results,
+    expand_batch_value,
+    read_image,
+    read_image_uint8,
+)
 
 
 mcp = FastMCP()
@@ -42,13 +48,13 @@ Returns:
     str: Path to the saved PWV GeoTIFF.
 ''')
 def band_ratio(
-    sur_refl_b02_path: str,
-    sur_refl_b05_path: str,
-    sur_refl_b17_path: str,
-    sur_refl_b18_path: str,
-    sur_refl_b19_path: str,
-    output_path: str
-) -> str:
+    sur_refl_b02_path: str | list[str],
+    sur_refl_b05_path: str | list[str],
+    sur_refl_b17_path: str | list[str],
+    sur_refl_b18_path: str | list[str],
+    sur_refl_b19_path: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Compute a Precipitable Water Vapor (PWV) image from MODIS surface reflectance bands 
@@ -89,50 +95,88 @@ def band_ratio(
     import rasterio
     import numpy as np
 
-    with rasterio.open(sur_refl_b02_path) as src02, \
-         rasterio.open(sur_refl_b05_path) as src05, \
-         rasterio.open(sur_refl_b17_path) as src17, \
-         rasterio.open(sur_refl_b18_path) as src18, \
-         rasterio.open(sur_refl_b19_path) as src19:
-        
-        b02 = src02.read(1).astype(np.float32) 
-        b05 = src05.read(1).astype(np.float32) 
-        b17 = src17.read(1).astype(np.float32) 
-        b18 = src18.read(1).astype(np.float32) 
-        b19 = src19.read(1).astype(np.float32) 
+    def _band_ratio_single(
+        b02_path: str,
+        b05_path: str,
+        b17_path: str,
+        b18_path: str,
+        b19_path: str,
+        out_path: str,
+    ) -> str:
+        with rasterio.open(b02_path) as src02, \
+             rasterio.open(b05_path) as src05, \
+             rasterio.open(b17_path) as src17, \
+             rasterio.open(b18_path) as src18, \
+             rasterio.open(b19_path) as src19:
+            b02 = src02.read(1).astype(np.float32)
+            b05 = src05.read(1).astype(np.float32)
+            b17 = src17.read(1).astype(np.float32)
+            b18 = src18.read(1).astype(np.float32)
+            b19 = src19.read(1).astype(np.float32)
+            profile = src02.profile
 
-        profile = src02.profile
+        lambda2, lambda5 = 0.865, 1.240
+        lambda17, lambda18, lambda19 = 0.905, 0.936, 0.940
 
-    # um
-    λ2, λ5 = 0.865, 1.240
-    λ17, λ18, λ19 = 0.905, 0.936, 0.940
+        a = (b05 - b02) / (lambda5 - lambda2)
+        b = b02 - a * lambda2
+        rho17 = a * lambda17 + b
+        rho18 = a * lambda18 + b
+        rho19 = a * lambda19 + b
 
-    # Linear interpolation of window reflectance
-    a = (b05 - b02) / (λ5 - λ2)
-    b = b02 - a * λ2
-    rho17 = a * λ17 + b
-    rho18 = a * λ18 + b
-    rho19 = a * λ19 + b
+        t17 = np.divide(b17, rho17, out=np.zeros_like(b17), where=rho17 != 0)
+        t18 = np.divide(b18, rho18, out=np.zeros_like(b18), where=rho18 != 0)
+        t19 = np.divide(b19, rho19, out=np.zeros_like(b19), where=rho19 != 0)
 
-    T17 = np.divide(b17, rho17, out=np.zeros_like(b17), where=rho17 != 0)
-    T18 = np.divide(b18, rho18, out=np.zeros_like(b18), where=rho18 != 0)
-    T19 = np.divide(b19, rho19, out=np.zeros_like(b19), where=rho19 != 0)
+        k = 0.03
+        with np.errstate(divide="ignore", invalid="ignore"):
+            pwv = -np.log(t18) / k
+            pwv[np.isnan(pwv)] = 0
+            pwv[pwv < 0] = 0
 
-    # PWV calculation
-    k = 0.03
-    with np.errstate(divide='ignore', invalid='ignore'):
-        PWV = -np.log(T18) / k
-        PWV[np.isnan(PWV)] = 0
-        PWV[PWV < 0] = 0
+        out_data = np.stack([pwv, t17, t18, t19], axis=0).astype(np.float32)
+        profile.update(dtype=rasterio.float32, count=4, compress="lzw")
 
-    out_data = np.stack([PWV, T17, T18, T19], axis=0).astype(np.float32)
-    profile.update(dtype=rasterio.float32, count=4, compress='lzw')
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
+            dst.write(out_data)
 
-    os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-    with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
-        dst.write(out_data)
+        return f"Result saved at {TEMP_DIR / out_path}"
 
-    return f'Result saved at {TEMP_DIR / output_path}'
+    batch_size = batch_size_from_values(
+        {
+            "sur_refl_b02_path": sur_refl_b02_path,
+            "sur_refl_b05_path": sur_refl_b05_path,
+            "sur_refl_b17_path": sur_refl_b17_path,
+            "sur_refl_b18_path": sur_refl_b18_path,
+            "sur_refl_b19_path": sur_refl_b19_path,
+            "output_path": output_path,
+        }
+    )
+    b02_paths = expand_batch_value(sur_refl_b02_path, batch_size, "sur_refl_b02_path")
+    b05_paths = expand_batch_value(sur_refl_b05_path, batch_size, "sur_refl_b05_path")
+    b17_paths = expand_batch_value(sur_refl_b17_path, batch_size, "sur_refl_b17_path")
+    b18_paths = expand_batch_value(sur_refl_b18_path, batch_size, "sur_refl_b18_path")
+    b19_paths = expand_batch_value(sur_refl_b19_path, batch_size, "sur_refl_b19_path")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
+    )
+
+    results = [
+        _band_ratio_single(b02_path, b05_path, b17_path, b18_path, b19_path, out_path)
+        for b02_path, b05_path, b17_path, b18_path, b19_path, out_path in zip(
+            b02_paths,
+            b05_paths,
+            b17_paths,
+            b18_paths,
+            b19_paths,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 
@@ -150,11 +194,11 @@ Returns:
     str: Path to saved LST GeoTIFF.
 ''')
 def lst_single_channel(
-    bt_path: str,
-    red_path: str,
-    nir_path: str,
-    output_path: str
-) -> str:
+    bt_path: str | list[str],
+    red_path: str | list[str],
+    nir_path: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Estimate Land Surface Temperature (LST) using the Single-Channel method.  
@@ -186,46 +230,69 @@ def lst_single_channel(
     import rasterio
     import numpy as np
 
-    def read_band(path):
+    def _read_band(path: str):
         with rasterio.open(path) as src:
             band = src.read(1).astype(np.float32)
             profile = src.profile
-            band[band < 0] = np.nan  # Filter invalid values
+            band[band < 0] = np.nan
         return band, profile
 
-    # Read input bands
-    bt, profile = read_band(bt_path)   # Brightness Temperature in Kelvin
-    red, _ = read_band(red_path)
-    nir, _ = read_band(nir_path)
+    def _lst_single_channel_one(
+        bt_single_path: str,
+        red_single_path: str,
+        nir_single_path: str,
+        out_path: str,
+    ) -> str:
+        bt, profile = _read_band(bt_single_path)
+        red, _ = _read_band(red_single_path)
+        nir, _ = _read_band(nir_single_path)
 
-    # Calculate NDVI
-    ndvi = (nir - red) / (nir + red + 1e-6)  # Avoid division by zero
-
-    # Estimate emissivity based on NDVI
-    emissivity = np.where(
-        ndvi > 0.7, 0.99,
-        np.where(
-            ndvi < 0.2, 0.96,
-            0.97 + 0.003 * ndvi
+        ndvi = (nir - red) / (nir + red + 1e-6)
+        emissivity = np.where(
+            ndvi > 0.7,
+            0.99,
+            np.where(ndvi < 0.2, 0.96, 0.97 + 0.003 * ndvi),
         )
+
+        wavelength = 10.9
+        c2 = 1.43877e4
+        lst = bt / (1 + (wavelength * bt / c2) * np.log(emissivity))
+
+        profile.update(dtype=rasterio.float32, count=1, compress="lzw")
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
+            dst.write(lst.astype(np.float32), 1)
+
+        return f"Result saved at {TEMP_DIR / out_path}"
+
+    batch_size = batch_size_from_values(
+        {
+            "bt_path": bt_path,
+            "red_path": red_path,
+            "nir_path": nir_path,
+            "output_path": output_path,
+        }
+    )
+    bt_paths = expand_batch_value(bt_path, batch_size, "bt_path")
+    red_paths = expand_batch_value(red_path, batch_size, "red_path")
+    nir_paths = expand_batch_value(nir_path, batch_size, "nir_path")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
     )
 
-    # Single-channel method parameters
-    wavelength = 10.9  # Center wavelength of Landsat 8 TIRS Band 10 (micrometers)
-    c2 = 1.43877e4     # Second radiation constant (μm·K)
-
-    # Calculate LST in Kelvin
-    lst = bt / (1 + (wavelength * bt / c2) * np.log(emissivity))
-
-    # Update profile and write output
-    profile.update(dtype=rasterio.float32, count=1, compress='lzw')
-
-    os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-
-    with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
-        dst.write(lst.astype(np.float32), 1)
-
-    return f'Result saved at {TEMP_DIR / output_path}'
+    results = [
+        _lst_single_channel_one(bt_single_path, red_single_path, nir_single_path, out_path)
+        for bt_single_path, red_single_path, nir_single_path, out_path in zip(
+            bt_paths,
+            red_paths,
+            nir_paths,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 @mcp.tool(description='''
@@ -243,10 +310,10 @@ Returns:
     str: Local file path of the exported LST image.
 ''')
 def lst_multi_channel(
-    band31_path: str,
-    band32_path: str,
-    output_path: str
-) -> str:
+    band31_path: str | list[str],
+    band32_path: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Estimate Land Surface Temperature (LST) using the multi-channel algorithm.  
@@ -275,33 +342,51 @@ def lst_multi_channel(
     import rasterio
     import numpy as np
 
-    # Read two thermal infrared bands
-    with rasterio.open(band31_path) as src31:
-        band31 = src31.read(1).astype(np.float32)
-        profile = src31.profile
+    def _lst_multi_channel_one(b31_path: str, b32_path: str, out_path: str) -> str:
+        with rasterio.open(b31_path) as src31:
+            band31 = src31.read(1).astype(np.float32)
+            profile = src31.profile
 
-    with rasterio.open(band32_path) as src32:
-        band32 = src32.read(1).astype(np.float32)
+        with rasterio.open(b32_path) as src32:
+            band32 = src32.read(1).astype(np.float32)
 
-    # Ensure spatial alignment of bands (assumes co-registered input)
-    # Split-window algorithm coefficients (empirical)
-    a = 1.022
-    b = 0.47
-    c = 0.43
+        a = 1.022
+        b = 0.47
+        c = 0.43
+        lst = a * band31 + b * (band31 - band32) + c
 
-    # Calculate LST
-    lst = a * band31 + b * (band31 - band32) + c
+        profile.update(dtype=rasterio.float32, count=1, compress="lzw")
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
+            dst.write(lst.astype(np.float32), 1)
 
-    # Update profile for output
-    profile.update(dtype=rasterio.float32, count=1, compress='lzw')
+        return f"Result saved at {TEMP_DIR / out_path}"
 
-    os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
+    batch_size = batch_size_from_values(
+        {
+            "band31_path": band31_path,
+            "band32_path": band32_path,
+            "output_path": output_path,
+        }
+    )
+    band31_paths = expand_batch_value(band31_path, batch_size, "band31_path")
+    band32_paths = expand_batch_value(band32_path, batch_size, "band32_path")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
+    )
 
-    # Write output GeoTIFF
-    with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
-        dst.write(lst.astype(np.float32), 1)
-
-    return f'Result saved at {TEMP_DIR / output_path}'
+    results = [
+        _lst_multi_channel_one(b31_path, b32_path, out_path)
+        for b31_path, b32_path, out_path in zip(
+            band31_paths,
+            band32_paths,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 @mcp.tool(description='''
@@ -326,13 +411,13 @@ Returns:
 ''')
 
 def split_window(
-    band31_path: str,
-    band32_path: str,
-    emissivity31_path: str,
-    emissivity32_path: str,
-    parameter: str,
-    output_path: str
-) -> str:
+    band31_path: str | list[str],
+    band32_path: str | list[str],
+    emissivity31_path: str | list[str],
+    emissivity32_path: str | list[str],
+    parameter: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Estimate **Land Surface Temperature (LST)** or **Precipitable Water Vapor (PWV)** 
@@ -384,78 +469,114 @@ def split_window(
     import rasterio
     import numpy as np
 
-    # Read inputs
-    with rasterio.open(band31_path) as src31:
-        band31 = src31.read(1).astype(np.float32)
-        profile = src31.profile
+    def _split_window_one(
+        b31_path: str,
+        b32_path: str,
+        e31_path: str,
+        e32_path: str,
+        parameter_value: str,
+        out_path: str,
+    ) -> str:
+        with rasterio.open(b31_path) as src31:
+            band31 = src31.read(1).astype(np.float32)
+            profile = src31.profile
 
-    with rasterio.open(band32_path) as src32:
-        band32 = src32.read(1).astype(np.float32)
+        with rasterio.open(b32_path) as src32:
+            band32 = src32.read(1).astype(np.float32)
 
-    with rasterio.open(emissivity31_path) as src_e31:
-        e31 = src_e31.read(1).astype(np.float32)
-        print(f"Emissivity31 Original range: {np.nanmin(e31):.4f} to {np.nanmax(e31):.4f}")
-        e31 = e31 * 0.002 + 0.49
-        print(f"Emissivity31 Corrected range: {np.nanmin(e31):.4f} to {np.nanmax(e31):.4f}")
+        with rasterio.open(e31_path) as src_e31:
+            e31 = src_e31.read(1).astype(np.float32)
+            print(f"Emissivity31 Original range: {np.nanmin(e31):.4f} to {np.nanmax(e31):.4f}")
+            e31 = e31 * 0.002 + 0.49
+            print(f"Emissivity31 Corrected range: {np.nanmin(e31):.4f} to {np.nanmax(e31):.4f}")
 
-    with rasterio.open(emissivity32_path) as src_e32:
-        e32 = src_e32.read(1).astype(np.float32)
-        print(f"Emissivity32 Original range: {np.nanmin(e32):.4f} to {np.nanmax(e32):.4f}")
-        e32 = e32 * 0.002 + 0.49
-        print(f"Emissivity32 Corrected range: {np.nanmin(e32):.4f} to {np.nanmax(e32):.4f}")
+        with rasterio.open(e32_path) as src_e32:
+            e32 = src_e32.read(1).astype(np.float32)
+            print(f"Emissivity32 Original range: {np.nanmin(e32):.4f} to {np.nanmax(e32):.4f}")
+            e32 = e32 * 0.002 + 0.49
+            print(f"Emissivity32 Corrected range: {np.nanmin(e32):.4f} to {np.nanmax(e32):.4f}")
 
-    # Calculate temperature difference and emissivity parameters
-    delta_T = band31 - band32
-    print(f"Temperature difference ΔT range: {np.nanmin(delta_T):.4f} to {np.nanmax(delta_T):.4f}")
+        delta_t = band31 - band32
+        print(f"Temperature difference ΔT range: {np.nanmin(delta_t):.4f} to {np.nanmax(delta_t):.4f}")
 
-    eps_mean = (e31 + e32) / 2
-    print(f"Mean emissivity range: {np.nanmin(eps_mean):.4f} to {np.nanmax(eps_mean):.4f}")
+        eps_mean = (e31 + e32) / 2
+        print(f"Mean emissivity range: {np.nanmin(eps_mean):.4f} to {np.nanmax(eps_mean):.4f}")
 
-    delta_eps = e31 - e32
-    print(f"Emissivity difference Δε range: {np.nanmin(delta_eps):.4f} to {np.nanmax(delta_eps):.4f}")
+        delta_eps = e31 - e32
+        print(f"Emissivity difference Δε range: {np.nanmin(delta_eps):.4f} to {np.nanmax(delta_eps):.4f}")
 
-    eps_mean = np.clip(eps_mean, 0.8, 1.0)
+        eps_mean = np.clip(eps_mean, 0.8, 1.0)
 
-    if parameter.upper() == "LST":
-        C0, C1, C2, C3, C4 = 0.268, 1.378, 0.183, 54.3, -2.238
+        if parameter_value.upper() == "LST":
+            c0, c1, c2, c3, c4 = 0.268, 1.378, 0.183, 54.3, -2.238
 
-        t31_c = band31 - 273.15
+            t31_c = band31 - 273.15
+            term1 = c0
+            term2 = c1 * t31_c
+            term3 = c2 * (t31_c ** 2) / 1000
+            term4 = (c3 + c4 * delta_t) * (1 - eps_mean)
+            term5 = (c3 + c4 * delta_t) * delta_eps
 
-        term1 = C0
-        term2 = C1 * t31_c
-        term3 = C2 * (t31_c ** 2) / 1000
-        term4 = (C3 + C4 * delta_T) * (1 - eps_mean)
-        term5 = (C3 + C4 * delta_T) * delta_eps
+            lst = term1 + term2 + term3 + term4 + term5
+            lst = lst + 273.15
+            lst = np.where((lst < 200) | (lst > 350), np.nan, lst)
 
-        lst = term1 + term2 + term3 + term4 + term5
-        lst = lst + 273.15  # back to Kelvin
+            output = lst.astype(np.float32)
+            out_band_name = "LST"
+        elif parameter_value.upper() == "PWV":
+            pwv = delta_t / (band31 * eps_mean) * 100
+            output = pwv.astype(np.float32)
+            out_band_name = "PWV"
+        else:
+            raise ValueError("Parameter must be either 'LST' or 'PWV'")
 
-        lst = np.where((lst < 200) | (lst > 350), np.nan, lst)
+        profile.update(dtype=rasterio.float32, count=1, compress="lzw")
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
+            dst.write(output, 1)
 
-        output = lst.astype(np.float32)
-        out_band_name = "LST"
+        print(f"\nFinal {out_band_name} statistics:")
+        print(f"Min: {np.nanmin(output):.2f}")
+        print(f"Max: {np.nanmax(output):.2f}")
+        print(f"Mean: {np.nanmean(output):.2f}")
+        print(f"Valid data percent: {np.sum(~np.isnan(output)) / output.size * 100:.2f}%")
 
-    elif parameter.upper() == "PWV":
-        pwv = delta_T / (band31 * eps_mean) * 100
-        output = pwv.astype(np.float32)
-        out_band_name = "PWV"
+        return f"Result saved at {TEMP_DIR / out_path}"
 
-    else:
-        raise ValueError("Parameter must be either 'LST' or 'PWV'")
+    batch_size = batch_size_from_values(
+        {
+            "band31_path": band31_path,
+            "band32_path": band32_path,
+            "emissivity31_path": emissivity31_path,
+            "emissivity32_path": emissivity32_path,
+            "parameter": parameter,
+            "output_path": output_path,
+        }
+    )
+    band31_paths = expand_batch_value(band31_path, batch_size, "band31_path")
+    band32_paths = expand_batch_value(band32_path, batch_size, "band32_path")
+    emissivity31_paths = expand_batch_value(emissivity31_path, batch_size, "emissivity31_path")
+    emissivity32_paths = expand_batch_value(emissivity32_path, batch_size, "emissivity32_path")
+    parameters = expand_batch_value(parameter, batch_size, "parameter")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
+    )
 
-    profile.update(dtype=rasterio.float32, count=1, compress="lzw")
-    os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-
-    with rasterio.open(TEMP_DIR / output_path, "w", **profile) as dst:
-        dst.write(output, 1)
-
-    print(f"\nFinal {out_band_name} statistics:")
-    print(f"Min: {np.nanmin(output):.2f}")
-    print(f"Max: {np.nanmax(output):.2f}")
-    print(f"Mean: {np.nanmean(output):.2f}")
-    print(f"Valid data percent: {np.sum(~np.isnan(output)) / output.size * 100:.2f}%")
-
-    return f"Result saved at {TEMP_DIR / output_path}"
+    results = [
+        _split_window_one(b31_path, b32_path, e31_path, e32_path, parameter_value, out_path)
+        for b31_path, b32_path, e31_path, e32_path, parameter_value, out_path in zip(
+            band31_paths,
+            band32_paths,
+            emissivity31_paths,
+            emissivity32_paths,
+            parameters,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 
@@ -582,12 +703,12 @@ Returns:
          LST_Day, LST_Night, BT_Day, BT_Night, Emis_Day, Emis_Night.
 ''')
 def modis_day_night_lst(
-    BT_day_path: str,
-    BT_night_path: str,
-    Emis_day_path: str,
-    Emis_night_path: str,
-    output_path: str
-) -> str:
+    BT_day_path: str | list[str],
+    BT_night_path: str | list[str],
+    Emis_day_path: str | list[str],
+    Emis_night_path: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Estimate Land Surface Temperature (LST) from MODIS Day and Night brightness temperatures 
@@ -625,11 +746,10 @@ def modis_day_night_lst(
     import rasterio
     import numpy as np
 
-    # Define a simple nearest neighbor resampling function
     def resample_to_reference(src_data: np.ndarray, src_profile: dict, ref_profile: dict) -> np.ndarray:
         src_height, src_width = src_data.shape
-        dst_height = ref_profile['height']
-        dst_width = ref_profile['width']
+        dst_height = ref_profile["height"]
+        dst_width = ref_profile["width"]
         scale_h = dst_height / src_height
         scale_w = dst_width / src_width
         dst_data = np.zeros((dst_height, dst_width), dtype=src_data.dtype)
@@ -640,62 +760,98 @@ def modis_day_night_lst(
                 dst_data[i, j] = src_data[src_i, src_j]
         return dst_data
 
-    # Set reasonable temperature range for filtering (Kelvin)
-    MIN_TEMP = 270
-    MAX_TEMP = 325
+    def _modis_day_night_lst_one(
+        bt_day_single_path: str,
+        bt_night_single_path: str,
+        emis_day_single_path: str,
+        emis_night_single_path: str,
+        out_path: str,
+    ) -> str:
+        min_temp = 270
+        max_temp = 325
 
-    # Read daytime brightness temperature as reference resolution and mask
-    with rasterio.open(BT_day_path) as src:
-        BT_day = src.read(1).astype(np.float32)
-        BT_day = np.where((BT_day > MAX_TEMP) | (BT_day < MIN_TEMP), np.nan, BT_day)
-        ref_profile = src.profile.copy()
+        with rasterio.open(bt_day_single_path) as src:
+            bt_day = src.read(1).astype(np.float32)
+            bt_day = np.where((bt_day > max_temp) | (bt_day < min_temp), np.nan, bt_day)
+            ref_profile = src.profile.copy()
 
-    # Read nighttime brightness temperature
-    with rasterio.open(BT_night_path) as src:
-        BT_night_raw = src.read(1).astype(np.float32)
-        BT_night_raw = np.where((BT_night_raw > MAX_TEMP) | (BT_night_raw < MIN_TEMP), np.nan, BT_night_raw)
-        BT_night = resample_to_reference(BT_night_raw, src.profile, ref_profile)
+        with rasterio.open(bt_night_single_path) as src:
+            bt_night_raw = src.read(1).astype(np.float32)
+            bt_night_raw = np.where((bt_night_raw > max_temp) | (bt_night_raw < min_temp), np.nan, bt_night_raw)
+            bt_night = resample_to_reference(bt_night_raw, src.profile, ref_profile)
 
-    # Read daytime emissivity
-    with rasterio.open(Emis_day_path) as src:
-        Emis_day_raw = src.read(1).astype(np.float32)
-        Emis_day_raw = (Emis_day_raw * 0.002) + 0.49
-        Emis_day = resample_to_reference(Emis_day_raw, src.profile, ref_profile)
+        with rasterio.open(emis_day_single_path) as src:
+            emis_day_raw = src.read(1).astype(np.float32)
+            emis_day_raw = (emis_day_raw * 0.002) + 0.49
+            emis_day = resample_to_reference(emis_day_raw, src.profile, ref_profile)
 
-    # Read nighttime emissivity
-    with rasterio.open(Emis_night_path) as src:
-        Emis_night_raw = src.read(1).astype(np.float32)
-        Emis_night_raw = (Emis_night_raw * 0.002) + 0.49
-        Emis_night = resample_to_reference(Emis_night_raw, src.profile, ref_profile)
+        with rasterio.open(emis_night_single_path) as src:
+            emis_night_raw = src.read(1).astype(np.float32)
+            emis_night_raw = (emis_night_raw * 0.002) + 0.49
+            emis_night = resample_to_reference(emis_night_raw, src.profile, ref_profile)
 
-    # Clip emissivity values
-    Emis_day_clipped = np.clip(Emis_day, 0.5, 1.0)
-    Emis_night_clipped = np.clip(Emis_night, 0.5, 1.0)
+        emis_day_clipped = np.clip(emis_day, 0.5, 1.0)
+        emis_night_clipped = np.clip(emis_night, 0.5, 1.0)
 
-    # Constants
-    wavelength = 11.0  # micrometers
-    c2 = 1.43877e4     # μm*K
+        wavelength = 11.0
+        c2 = 1.43877e4
 
-    # Calculate LST
-    LST_day = BT_day / (1 + (wavelength * BT_day / c2) * np.log(Emis_day_clipped))
-    LST_night = BT_night / (1 + (wavelength * BT_night / c2) * np.log(Emis_night_clipped))
+        lst_day = bt_day / (1 + (wavelength * bt_day / c2) * np.log(emis_day_clipped))
+        lst_night = bt_night / (1 + (wavelength * bt_night / c2) * np.log(emis_night_clipped))
 
-    # Filter unreasonable LST values
-    LST_day = np.where((LST_day > MAX_TEMP) | (LST_day < MIN_TEMP), np.nan, LST_day)
-    LST_night = np.where((LST_night > MAX_TEMP) | (LST_night < MIN_TEMP), np.nan, LST_night)
+        lst_day = np.where((lst_day > max_temp) | (lst_day < min_temp), np.nan, lst_day)
+        lst_night = np.where((lst_night > max_temp) | (lst_night < min_temp), np.nan, lst_night)
 
-    # Stack six bands
-    out_stack = np.stack([LST_day, LST_night, BT_day, BT_night, Emis_day, Emis_night], axis=0).astype(np.float32)
-    profile = ref_profile.copy()
-    profile.update(count=6, dtype=rasterio.float32, compress='lzw')
+        out_stack = np.stack(
+            [lst_day, lst_night, bt_day, bt_night, emis_day, emis_night],
+            axis=0,
+        ).astype(np.float32)
+        profile = ref_profile.copy()
+        profile.update(count=6, dtype=rasterio.float32, compress="lzw")
 
-    os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
+            dst.write(out_stack)
 
-    # Write GeoTIFF
-    with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
-        dst.write(out_stack)
+        return f"Result saved at {TEMP_DIR / out_path}"
 
-    return f"Result saved at {TEMP_DIR / output_path}"
+    batch_size = batch_size_from_values(
+        {
+            "BT_day_path": BT_day_path,
+            "BT_night_path": BT_night_path,
+            "Emis_day_path": Emis_day_path,
+            "Emis_night_path": Emis_night_path,
+            "output_path": output_path,
+        }
+    )
+    bt_day_paths = expand_batch_value(BT_day_path, batch_size, "BT_day_path")
+    bt_night_paths = expand_batch_value(BT_night_path, batch_size, "BT_night_path")
+    emis_day_paths = expand_batch_value(Emis_day_path, batch_size, "Emis_day_path")
+    emis_night_paths = expand_batch_value(Emis_night_path, batch_size, "Emis_night_path")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
+    )
+
+    results = [
+        _modis_day_night_lst_one(
+            bt_day_single_path,
+            bt_night_single_path,
+            emis_day_single_path,
+            emis_night_single_path,
+            out_path,
+        )
+        for bt_day_single_path, bt_night_single_path, emis_day_single_path, emis_night_single_path, out_path in zip(
+            bt_day_paths,
+            bt_night_paths,
+            emis_day_paths,
+            emis_night_paths,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 @mcp.tool(description='''
@@ -981,11 +1137,11 @@ Returns:
     str: Path to the exported ATI GeoTIFF.
 ''')
 def ATI(
-    day_temp_path: str,
-    night_temp_path: str,
-    albedo_path: str,
-    output_path: str
-) -> str:
+    day_temp_path: str | list[str],
+    night_temp_path: str | list[str],
+    albedo_path: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Estimate Apparent Thermal Inertia (ATI) using the Thermal Inertia Method.
@@ -1020,38 +1176,41 @@ def ATI(
     from osgeo import gdal
 
     def resample_to_reference(src_data: np.ndarray, src_profile: dict, ref_profile: dict) -> np.ndarray:
-        """
-        Description:
-            Resample a raster array to match the resolution and extent of a reference raster profile
-            using GDAL bilinear resampling.
-
-        Parameters:
-            src_data (np.ndarray): Source raster data to be resampled.
-            src_profile (dict): Metadata profile of the source raster.
-            ref_profile (dict): Metadata profile of the reference raster.
-
-        Return:
-            np.ndarray: Resampled raster data array.
-        """
-        temp_src = 'temp_src.tif'
-        temp_dst = 'temp_dst.tif'
+        temp_src = "temp_src.tif"
+        temp_dst = "temp_dst.tif"
         try:
-            driver = gdal.GetDriverByName('GTiff')
-            dataset = driver.Create(temp_src, src_profile['width'], src_profile['height'], 1, gdal.GDT_Float32)
-            transform = src_profile['transform']
-            geotransform = [transform[2], transform[0], transform[1], transform[5], transform[3], transform[4]]
+            driver = gdal.GetDriverByName("GTiff")
+            dataset = driver.Create(
+                temp_src,
+                src_profile["width"],
+                src_profile["height"],
+                1,
+                gdal.GDT_Float32,
+            )
+            transform = src_profile["transform"]
+            geotransform = [
+                transform[2],
+                transform[0],
+                transform[1],
+                transform[5],
+                transform[3],
+                transform[4],
+            ]
             dataset.SetGeoTransform(geotransform)
-            if 'crs' in src_profile and src_profile['crs']:
-                dataset.SetProjection(src_profile['crs'].to_wkt())
+            if "crs" in src_profile and src_profile["crs"]:
+                dataset.SetProjection(src_profile["crs"].to_wkt())
             else:
-                dataset.SetProjection('EPSG:4326')
+                dataset.SetProjection("EPSG:4326")
             dataset.GetRasterBand(1).WriteArray(src_data)
             dataset = None
 
-            gdal.Warp(temp_dst, temp_src,
-                      width=ref_profile['width'],
-                      height=ref_profile['height'],
-                      resampleAlg=gdal.GRA_Bilinear)
+            gdal.Warp(
+                temp_dst,
+                temp_src,
+                width=ref_profile["width"],
+                height=ref_profile["height"],
+                resampleAlg=gdal.GRA_Bilinear,
+            )
             dataset = gdal.Open(temp_dst)
             resampled_data = dataset.GetRasterBand(1).ReadAsArray()
             dataset = None
@@ -1062,37 +1221,62 @@ def ATI(
             if os.path.exists(temp_dst):
                 os.remove(temp_dst)
 
-    # Read raster data
-    with rasterio.open(day_temp_path) as src_day:
-        BT_day = src_day.read(1).astype(np.float32)
-        day_profile = src_day.profile
-    with rasterio.open(night_temp_path) as src_night:
-        BT_night = src_night.read(1).astype(np.float32)
-        night_profile = src_night.profile
-    with rasterio.open(albedo_path) as src_alb:
-        albedo = src_alb.read(1).astype(np.float32)
-        albedo_profile = src_alb.profile
+    def _ati_one(day_path: str, night_path: str, albedo_single_path: str, out_path: str) -> str:
+        with rasterio.open(day_path) as src_day:
+            bt_day = src_day.read(1).astype(np.float32)
+            day_profile = src_day.profile
+        with rasterio.open(night_path) as src_night:
+            bt_night = src_night.read(1).astype(np.float32)
+            night_profile = src_night.profile
+        with rasterio.open(albedo_single_path) as src_alb:
+            albedo = src_alb.read(1).astype(np.float32)
+            albedo_profile = src_alb.profile
 
-    # Align raster datasets to daytime raster
-    BT_night = resample_to_reference(BT_night, night_profile, day_profile)
-    albedo = resample_to_reference(albedo, albedo_profile, day_profile)
+        bt_night = resample_to_reference(bt_night, night_profile, day_profile)
+        albedo = resample_to_reference(albedo, albedo_profile, day_profile)
 
-    # Compute delta temperature
-    delta_T = BT_day - BT_night
-    delta_T = np.where(delta_T == 0, np.nan, delta_T)
+        delta_t = bt_day - bt_night
+        delta_t = np.where(delta_t == 0, np.nan, delta_t)
 
-    # Calculate ATI
-    ATI = (1 - albedo) / delta_T
-    ATI = np.clip(ATI, 0, 10)  # Avoid extreme values
+        ati = (1 - albedo) / delta_t
+        ati = np.clip(ati, 0, 10)
 
-    # Save output
-    day_profile.update(dtype=rasterio.float32, count=1, compress='lzw')
-    out_path = Path(TEMP_DIR) / output_path
-    os.makedirs(out_path.parent, exist_ok=True)
-    with rasterio.open(out_path, 'w', **day_profile) as dst:
-        dst.write(ATI, 1)
+        day_profile.update(dtype=rasterio.float32, count=1, compress="lzw")
+        full_out_path = Path(TEMP_DIR) / out_path
+        os.makedirs(full_out_path.parent, exist_ok=True)
+        with rasterio.open(full_out_path, "w", **day_profile) as dst:
+            dst.write(ati, 1)
 
-    return f'Result saved at {out_path}'
+        return f"Result saved at {full_out_path}"
+
+    batch_size = batch_size_from_values(
+        {
+            "day_temp_path": day_temp_path,
+            "night_temp_path": night_temp_path,
+            "albedo_path": albedo_path,
+            "output_path": output_path,
+        }
+    )
+    day_paths = expand_batch_value(day_temp_path, batch_size, "day_temp_path")
+    night_paths = expand_batch_value(night_temp_path, batch_size, "night_temp_path")
+    albedo_paths = expand_batch_value(albedo_path, batch_size, "albedo_path")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
+    )
+
+    results = [
+        _ati_one(day_path, night_path, albedo_single_path, out_path)
+        for day_path, night_path, albedo_single_path, out_path in zip(
+            day_paths,
+            night_paths,
+            albedo_paths,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 

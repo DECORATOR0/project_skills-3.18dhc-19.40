@@ -9,12 +9,20 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, get_args, get_origin
+from typing import Any, Callable, Union, get_args, get_origin
 
 from .utils import ensure_dir, read_text, safe_relative_path, write_text
 
 EO_TOOL_FILES = ["Index.py", "Inversion.py", "Perception.py", "Analysis.py", "Statistics.py"]
 _TOOL_IMPORT_LOCK = threading.Lock()
+try:
+    from types import UnionType as _NativeUnionType
+except ImportError:
+    _NativeUnionType = None
+
+_UNION_ORIGINS = {Union}
+if _NativeUnionType is not None:
+    _UNION_ORIGINS.add(_NativeUnionType)
 
 
 @dataclass
@@ -24,17 +32,18 @@ class ToolSpec:
     parameters: dict[str, Any]
     callable: Callable[..., Any]
     source: str
+    signature: dict[str, str] = field(default_factory=dict)
 
     def prompt_entry(self) -> str:
-        return json.dumps(
-            {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-                "source": self.source,
-            },
-            ensure_ascii=False,
-        )
+        payload = {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+            "source": self.source,
+        }
+        if self.signature:
+            payload["signature"] = self.signature
+        return json.dumps(payload, ensure_ascii=False)
 
 
 def _truncate(value: Any, limit: int = 4000) -> str:
@@ -102,6 +111,11 @@ class EOToolRuntime:
             return {"type": "object"}
         origin = get_origin(annotation)
         args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if origin in _UNION_ORIGINS and args:
+            variants = [self._annotation_to_schema(arg) for arg in args]
+            if len(variants) == 1:
+                return variants[0]
+            return {"oneOf": variants}
         if origin in {list, tuple, set}:
             item_annotation = args[0] if args else Any
             return {
@@ -120,6 +134,32 @@ class EOToolRuntime:
             return {"type": "number"}
         return {"type": "string"}
 
+    def _annotation_to_text(self, annotation: Any) -> str:
+        if annotation in {inspect._empty, Any, None}:
+            return "string"
+        if annotation is str:
+            return "str"
+        if annotation is bool:
+            return "bool"
+        if annotation is int:
+            return "int"
+        if annotation is float:
+            return "float"
+        if annotation in {list, tuple, set}:
+            return "list[string]"
+        if annotation is dict:
+            return "object"
+        origin = get_origin(annotation)
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if origin in _UNION_ORIGINS and args:
+            return " | ".join(self._annotation_to_text(arg) for arg in args)
+        if origin in {list, tuple, set}:
+            item_annotation = args[0] if args else Any
+            return f"list[{self._annotation_to_text(item_annotation)}]"
+        if origin is dict:
+            return "object"
+        return "string"
+
     def _schema_from_signature(self, func: Callable[..., Any]) -> dict[str, Any]:
         params: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
         sig = inspect.signature(func)
@@ -137,6 +177,15 @@ class EOToolRuntime:
                 params["required"].append(arg_name)
         return params
 
+    def _signature_from_callable(self, func: Callable[..., Any]) -> dict[str, str]:
+        signature: dict[str, str] = {}
+        sig = inspect.signature(func)
+        for arg_name, param in sig.parameters.items():
+            if arg_name == "self":
+                continue
+            signature[arg_name] = self._annotation_to_text(param.annotation)
+        return signature
+
     def _coerce_argument(self, value: Any, annotation: Any) -> Any:
         if value is None:
             return value
@@ -148,6 +197,34 @@ class EOToolRuntime:
             annotation = dict[str, Any]
         origin = get_origin(annotation)
         args = [arg for arg in get_args(annotation) if arg is not type(None)]
+
+        if origin in _UNION_ORIGINS and args:
+            if isinstance(value, (list, tuple, set)):
+                for candidate in args:
+                    if get_origin(candidate) in {list, tuple, set}:
+                        return self._coerce_argument(value, candidate)
+            if isinstance(value, dict):
+                for candidate in args:
+                    if get_origin(candidate) is dict or candidate is dict:
+                        return self._coerce_argument(value, candidate)
+            if isinstance(value, str):
+                text = value.strip()
+                if text.startswith("[") or text.startswith("("):
+                    for candidate in args:
+                        if get_origin(candidate) in {list, tuple, set}:
+                            return self._coerce_argument(value, candidate)
+                if text.startswith("{"):
+                    for candidate in args:
+                        if get_origin(candidate) is dict or candidate is dict:
+                            return self._coerce_argument(value, candidate)
+            scalar_candidates = [
+                candidate
+                for candidate in args
+                if get_origin(candidate) not in {list, tuple, set, dict}
+            ]
+            if scalar_candidates:
+                return self._coerce_argument(value, scalar_candidates[0])
+            return self._coerce_argument(value, args[0])
 
         if origin in {list, tuple, set}:
             item_annotation = args[0] if args else Any
@@ -250,6 +327,7 @@ class EOToolRuntime:
                     parameters=self._schema_from_signature(callable_obj),
                     callable=callable_obj,
                     source=f"agent/tools/{module_file}",
+                    signature=self._signature_from_callable(callable_obj),
                 )
 
     def specs(self) -> list[ToolSpec]:
@@ -299,6 +377,7 @@ class Toolbox:
                 parameters=spec.parameters,
                 callable=self._wrap_eo_tool(spec.name),
                 source=spec.source,
+                signature=spec.signature,
             )
 
     def _register(self, spec: ToolSpec) -> None:

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
 from osgeo import gdal
 
@@ -55,3 +59,50 @@ def get_geotransform(file_path) -> tuple:
         return None, None
     else:
         return geo, proj
+
+
+def batch_size_from_values(values: dict[str, Any]) -> int | None:
+    lengths = {
+        len(value)
+        for value in values.values()
+        if isinstance(value, (list, tuple))
+    }
+    if not lengths:
+        return None
+    if len(lengths) != 1:
+        detail = ", ".join(
+            f"{name}={len(value)}"
+            for name, value in values.items()
+            if isinstance(value, (list, tuple))
+        )
+        raise ValueError(f"Batch arguments must have the same length. Got: {detail}")
+    return next(iter(lengths))
+
+
+def expand_batch_value(
+    value: Any,
+    batch_size: int | None,
+    name: str,
+    *,
+    allow_scalar_broadcast: bool = True,
+) -> list[Any]:
+    if batch_size is None:
+        return [value]
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+        if len(items) != batch_size:
+            raise ValueError(
+                f"Batch argument `{name}` must have length {batch_size}, got {len(items)}."
+            )
+        return items
+    if not allow_scalar_broadcast and batch_size > 1:
+        raise ValueError(
+            f"Batch argument `{name}` must be provided as a list with length {batch_size}."
+        )
+    return [value] * batch_size
+
+
+def collapse_batch_results(results: list[Any], batch_size: int | None) -> Any:
+    if batch_size is None:
+        return results[0]
+    return results

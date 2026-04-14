@@ -3,7 +3,13 @@ import argparse
 from pathlib import Path
 from fastmcp import FastMCP
 
-from utils import read_image, read_image_uint8
+from utils import (
+    batch_size_from_values,
+    collapse_batch_results,
+    expand_batch_value,
+    read_image,
+    read_image_uint8,
+)
 
 mcp = FastMCP()
 parser = argparse.ArgumentParser()
@@ -1034,10 +1040,10 @@ Returns:
     str: Path to the exported TVDI GeoTIFF.
 ''')
 def compute_tvdi(
-    ndvi_path: str,
-    lst_path: str,
-    output_path: str
-) -> str:
+    ndvi_path: str | list[str],
+    lst_path: str | list[str],
+    output_path: str | list[str]
+) -> str | list[str]:
     """
     Description:
         Compute the Temperature Vegetation Dryness Index (TVDI) based on NDVI and LST raster data.
@@ -1067,86 +1073,95 @@ def compute_tvdi(
     import numpy as np
     from scipy.stats import linregress
 
-    # Read NDVI and LST
-    with rasterio.open(ndvi_path) as src_ndvi:
-        ndvi = src_ndvi.read(1).astype(np.float32) * 0.0001
-        profile = src_ndvi.profile
-    with rasterio.open(lst_path) as src_lst:
-        lst = src_lst.read(1).astype(np.float32) * 0.02
-
-    # Create mask for valid data
-    valid_mask = (ndvi >= 0) & (ndvi <= 1) & (lst > 0)
-
-    # No valid data
-    if not np.any(valid_mask):
-        print(f"Warning: No valid data points in {output_path}")
-        tvdi = np.full_like(ndvi, np.nan, dtype=np.float32)
-        profile.update(dtype=rasterio.float32, count=1, compress='lzw')
-        os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-        with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
+    def _write_nan_raster(profile: dict, out_path: str, shape: tuple[int, int]) -> str:
+        tvdi = np.full(shape, np.nan, dtype=np.float32)
+        profile.update(dtype=rasterio.float32, count=1, compress="lzw")
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
             dst.write(tvdi, 1)
-        return f'Result saved at {TEMP_DIR / output_path}'
+        return f"Result saved at {TEMP_DIR / out_path}"
 
-    ndvi_valid = ndvi[valid_mask]
-    lst_valid = lst[valid_mask]
+    def _compute_tvdi_one(ndvi_single_path: str, lst_single_path: str, out_path: str) -> str:
+        with rasterio.open(ndvi_single_path) as src_ndvi:
+            ndvi = src_ndvi.read(1).astype(np.float32) * 0.0001
+            profile = src_ndvi.profile
+        with rasterio.open(lst_single_path) as src_lst:
+            lst = src_lst.read(1).astype(np.float32) * 0.02
 
-    # Not enough valid pixels
-    if len(ndvi_valid) < 100:
-        print(f"Warning: Too few valid data points ({len(ndvi_valid)}) in {output_path}")
-        tvdi = np.full_like(ndvi, np.nan, dtype=np.float32)
-        profile.update(dtype=rasterio.float32, count=1, compress='lzw')
-        os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-        with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
+        valid_mask = (ndvi >= 0) & (ndvi <= 1) & (lst > 0)
+        if not np.any(valid_mask):
+            print(f"Warning: No valid data points in {out_path}")
+            return _write_nan_raster(profile, out_path, ndvi.shape)
+
+        ndvi_valid = ndvi[valid_mask]
+        lst_valid = lst[valid_mask]
+        if len(ndvi_valid) < 100:
+            print(f"Warning: Too few valid data points ({len(ndvi_valid)}) in {out_path}")
+            return _write_nan_raster(profile, out_path, ndvi.shape)
+
+        n_bins = 100
+        bins = np.linspace(ndvi_valid.min(), ndvi_valid.max(), n_bins + 1)
+        ndvi_bin_centers, lst_max_vals, lst_min_vals = [], [], []
+
+        for i in range(n_bins):
+            bin_mask = (ndvi_valid >= bins[i]) & (ndvi_valid < bins[i + 1])
+            if np.any(bin_mask):
+                ndvi_bin_centers.append((bins[i] + bins[i + 1]) / 2)
+                lst_max_vals.append(np.max(lst_valid[bin_mask]))
+                lst_min_vals.append(np.min(lst_valid[bin_mask]))
+
+        if len(ndvi_bin_centers) < 2:
+            print(f"Warning: Not enough data bins for regression in {out_path}")
+            return _write_nan_raster(profile, out_path, ndvi.shape)
+
+        ndvi_bin_centers = np.array(ndvi_bin_centers)
+        lst_max_vals = np.array(lst_max_vals)
+        lst_min_vals = np.array(lst_min_vals)
+
+        slope_max, intercept_max, _, _, _ = linregress(ndvi_bin_centers, lst_max_vals)
+        slope_min, intercept_min, _, _, _ = linregress(ndvi_bin_centers, lst_min_vals)
+
+        lst_max = ndvi * slope_max + intercept_max
+        lst_min = ndvi * slope_min + intercept_min
+
+        denominator = lst_max - lst_min
+        denominator[denominator == 0] = 1e-6
+        tvdi = (lst - lst_min) / denominator
+        tvdi = np.clip(tvdi, 0, 1).astype(np.float32)
+        tvdi[~valid_mask] = np.nan
+
+        profile.update(dtype=rasterio.float32, count=1, compress="lzw")
+        os.makedirs((TEMP_DIR / out_path).parent, exist_ok=True)
+        with rasterio.open(TEMP_DIR / out_path, "w", **profile) as dst:
             dst.write(tvdi, 1)
-        return f'Result saved at {TEMP_DIR / output_path}'
 
-    # Bin NDVI values
-    n_bins = 100
-    bins = np.linspace(ndvi_valid.min(), ndvi_valid.max(), n_bins + 1)
-    ndvi_bin_centers, lst_max_vals, lst_min_vals = [], [], []
+        return f"Result saved at {TEMP_DIR / out_path}"
 
-    for i in range(n_bins):
-        bin_mask = (ndvi_valid >= bins[i]) & (ndvi_valid < bins[i + 1])
-        if np.any(bin_mask):
-            ndvi_bin_centers.append((bins[i] + bins[i + 1]) / 2)
-            lst_max_vals.append(np.max(lst_valid[bin_mask]))
-            lst_min_vals.append(np.min(lst_valid[bin_mask]))
+    batch_size = batch_size_from_values(
+        {
+            "ndvi_path": ndvi_path,
+            "lst_path": lst_path,
+            "output_path": output_path,
+        }
+    )
+    ndvi_paths = expand_batch_value(ndvi_path, batch_size, "ndvi_path")
+    lst_paths = expand_batch_value(lst_path, batch_size, "lst_path")
+    output_paths = expand_batch_value(
+        output_path,
+        batch_size,
+        "output_path",
+        allow_scalar_broadcast=False,
+    )
 
-    # Not enough bins for regression
-    if len(ndvi_bin_centers) < 2:
-        print(f"Warning: Not enough data bins for regression in {output_path}")
-        tvdi = np.full_like(ndvi, np.nan, dtype=np.float32)
-        profile.update(dtype=rasterio.float32, count=1, compress='lzw')
-        os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-        with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
-            dst.write(tvdi, 1)
-        return f'Result saved at {TEMP_DIR / output_path}'
-
-    ndvi_bin_centers = np.array(ndvi_bin_centers)
-    lst_max_vals = np.array(lst_max_vals)
-    lst_min_vals = np.array(lst_min_vals)
-
-    # Linear regression
-    slope_max, intercept_max, _, _, _ = linregress(ndvi_bin_centers, lst_max_vals)
-    slope_min, intercept_min, _, _, _ = linregress(ndvi_bin_centers, lst_min_vals)
-
-    lst_max = ndvi * slope_max + intercept_max
-    lst_min = ndvi * slope_min + intercept_min
-
-    # TVDI calculation
-    denominator = lst_max - lst_min
-    denominator[denominator == 0] = 1e-6
-    tvdi = (lst - lst_min) / denominator
-    tvdi = np.clip(tvdi, 0, 1).astype(np.float32)
-    tvdi[~valid_mask] = np.nan
-
-    # Save result
-    profile.update(dtype=rasterio.float32, count=1, compress='lzw')
-    os.makedirs((TEMP_DIR / output_path).parent, exist_ok=True)
-    with rasterio.open(TEMP_DIR / output_path, 'w', **profile) as dst:
-        dst.write(tvdi, 1)
-
-    return f'Result saved at {TEMP_DIR / output_path}'
+    results = [
+        _compute_tvdi_one(ndvi_single_path, lst_single_path, out_path)
+        for ndvi_single_path, lst_single_path, out_path in zip(
+            ndvi_paths,
+            lst_paths,
+            output_paths,
+        )
+    ]
+    return collapse_batch_results(results, batch_size)
 
 
 if __name__ == "__main__":

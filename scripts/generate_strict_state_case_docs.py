@@ -44,6 +44,12 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_json_if_exists(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    return load_json(path)
+
+
 def now_stamp() -> str:
     return datetime.now().strftime("%y.%-m.%-d_%H%M")
 
@@ -72,6 +78,17 @@ def clean_text(text: object, limit: int = 160) -> str:
 
 def summarize_observation(observation: object) -> str:
     return clean_text(observation, limit=180)
+
+
+def render_choices(task_payload: dict) -> list[str]:
+    choices = task_payload.get("choices") or []
+    if not isinstance(choices, list) or not choices:
+        return ["- `(no choices found)`"]
+    lines: list[str] = []
+    for idx, choice in enumerate(choices):
+        label = chr(ord("A") + idx) if idx < 26 else f"Option{idx + 1}"
+        lines.append(f"- `{label}`: {choice}")
+    return lines
 
 
 def observation_is_error_like(observation: object) -> bool:
@@ -206,6 +223,62 @@ def describe_tool_failures(tools: list[dict[str, object]]) -> list[str]:
     return messages
 
 
+def compact_reason_lines(reason_lines: list[str], limit: int = 2) -> list[str]:
+    out: list[str] = []
+    for item in reason_lines:
+        if item not in out:
+            out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def render_iteration_compare_section(previous_summary: dict[str, object] | None, current_summary: dict[str, object]) -> list[str]:
+    if not previous_summary:
+        return []
+
+    prev_success = bool(previous_summary.get("success"))
+    cur_success = bool(current_summary.get("success"))
+    if prev_success and cur_success:
+        return []
+
+    prev_label = "对" if prev_success else "错"
+    cur_label = "对" if cur_success else "错"
+    prev_reasons = compact_reason_lines(list(previous_summary.get("reason_lines") or []))
+    cur_reasons = compact_reason_lines(list(current_summary.get("reason_lines") or []))
+
+    lines = [
+        "## 与上一轮对比",
+        "",
+        f"- 状态变化：`{prev_label} -> {cur_label}`",
+    ]
+
+    if prev_success:
+        if prev_reasons:
+            lines.append(f"- 上一轮为什么对：{'；'.join(prev_reasons)}")
+        else:
+            lines.append("- 上一轮为什么对：上一轮形成了可用证据链并命中了金标。")
+    else:
+        if prev_reasons:
+            lines.append(f"- 上一轮为什么错：{'；'.join(prev_reasons)}")
+        else:
+            lines.append("- 上一轮为什么错：上一轮没有形成可靠证据闭环。")
+
+    if cur_success:
+        if cur_reasons:
+            lines.append(f"- 这一轮为什么对：{'；'.join(cur_reasons)}")
+        else:
+            lines.append("- 这一轮为什么对：这一轮形成了可用证据链并命中了金标。")
+    else:
+        if cur_reasons:
+            lines.append(f"- 这一轮为什么错：{'；'.join(cur_reasons)}")
+        else:
+            lines.append("- 这一轮为什么错：这一轮没有形成可靠证据闭环。")
+
+    lines.append("")
+    return lines
+
+
 def build_reason_lines(
     *,
     task_success: bool,
@@ -310,8 +383,10 @@ def build_doc(
     *,
     task_dir: Path,
     iteration_name: str,
+    task_payload: dict,
     task_record: dict,
     state: dict,
+    previous_summary: dict[str, object] | None = None,
 ) -> tuple[str, dict[str, object]]:
     env_result = state.get("env_result", {})
     tools = env_result.get("tool_trajectory", [])
@@ -357,6 +432,10 @@ def build_doc(
         "",
         state.get("task_prompt", "").strip(),
         "",
+        "## 选项",
+        "",
+        *render_choices(task_payload),
+        "",
         "## 结果",
         "",
         f"- iteration：`{iteration_name}`",
@@ -393,15 +472,99 @@ def build_doc(
         f"`{clean_text(executor_summary or '(empty)', limit=260)}`",
         "",
     ]
-
-    summary = {
+    current_summary = {
         "task_dir_name": task_dir.name,
         "task_label": f"q{qid}",
         "doc_name": doc_name,
         "success": task_success,
         "phase_path": phase_path(transitions),
         "note": reason_lines[0] if reason_lines else "",
+        "reason_lines": reason_lines,
     }
+    lines.extend(render_iteration_compare_section(previous_summary, current_summary))
+    return "\n".join(lines), current_summary
+
+
+def build_incomplete_doc(
+    *,
+    task_dir: Path,
+    iteration_name: str,
+    task_payload: dict,
+    previous_summary: dict[str, object] | None = None,
+) -> tuple[str, dict[str, object]]:
+    qid = str(task_payload.get("task_id", "")).split("-")[-1] or "unknown"
+    final_answer = ""
+    gold_answer = str(task_payload.get("gold_answer") or "")
+    reason_lines = [
+        "生成复盘文档时该题还没有落出 `task_record.json`，按未完成失败处理。",
+        "当前还没有 `env/state.json`，所以拿不到完整 executor 轨迹和工具返回。",
+        "这类记录更接近运行中断或长尾未收尾，不代表已经形成了稳定错误答案。",
+    ]
+    lines = [
+        f"# {task_dir.name}",
+        "",
+        f"题号：`q{qid}`",
+        "",
+        f"任务定义：[task.json]({task_dir / 'task.json'}:1)",
+        f"task_record：`{(task_dir / 'task_record.json').exists()}`",
+        f"state：`{(task_dir / 'env/state.json').exists()}`",
+        "",
+        "## 题目",
+        "",
+        str(task_payload.get("prompt") or "").strip(),
+        "",
+        "## 选项",
+        "",
+        *render_choices(task_payload),
+        "",
+        "## 结果",
+        "",
+        f"- iteration：`{iteration_name}`",
+        "- modality / bucket：`(pending)` / `(pending)`",
+        "- 是否成功：`False`",
+        f"- 最终答案：`{final_answer or '(empty)'}`",
+        "- phase 路径：`INIT -> (unfinished)`",
+        "- 最终答题阶段：`(unfinished)`",
+        "- accuracy / efficiency：`0` / `0`",
+        "- tool_exact_match / parameter_accuracy：`0` / `0`",
+        f"- 金标答案：`{gold_answer or '(empty)'}`",
+        "",
+        "## Step 节奏",
+        "",
+        "- 记录到的最大 step：`0`",
+        "- 工具调用数：`0`",
+        "- 工具失败数：`0`",
+        "- 错误样式返回数：`0`",
+        "- 合法 phase 切换数：`0`",
+        "- 非法 phase 跳转反馈：`0`",
+        "- 未知 phase 反馈：`0`",
+        "- 非 CONCLUDE 作答反馈：`0`",
+        "- conclude 模式：`none`",
+        "",
+        "## Step 行为细节",
+        "",
+        "- 生成文档时只存在 `task.json` / `task_bucket.json`，执行轨迹尚未落盘。",
+        "- 按当前要求，这题在复盘目录中按失败计入。",
+        "",
+        "## 成败原因",
+        "",
+        *[f"- {item}" for item in reason_lines],
+        "",
+        "## 收尾摘要",
+        "",
+        "`unfinished at doc generation time`",
+        "",
+    ]
+    summary = {
+        "task_dir_name": task_dir.name,
+        "task_label": f"q{qid}",
+        "doc_name": f"{task_dir.name}.md",
+        "success": False,
+        "phase_path": "INIT -> (unfinished)",
+        "note": "未完成，按失败计入。",
+        "reason_lines": reason_lines,
+    }
+    lines.extend(render_iteration_compare_section(previous_summary, summary))
     return "\n".join(lines), summary
 
 
@@ -412,11 +575,13 @@ def write_iteration_readme(
     iteration_name: str,
     run_dir: Path,
 ) -> None:
+    incomplete_count = sum(1 for item in summaries if "(unfinished)" in str(item.get("phase_path", "")))
     lines = [
         f"# {iteration_name} 逐题复盘",
         "",
         f"- 来源 run：`{run_dir}`",
         f"- 题目数：`{len(summaries)}`",
+        f"- 未完成按失败计入：`{incomplete_count}`",
         "",
         "| 题号 | 文档 | 成功 | phase 路径 | 备注 |",
         "| --- | --- | --- | --- | --- |",
@@ -458,11 +623,13 @@ def write_root_readme(
     )
     for name, summaries in iteration_summaries.items():
         success_count = sum(1 for item in summaries if item["success"])
+        incomplete_count = sum(1 for item in summaries if "(unfinished)" in str(item.get("phase_path", "")))
         lines.extend(
             [
                 f"## {name}",
                 "",
                 f"- success：`{success_count}/{len(summaries)}`",
+                f"- 未完成按失败计入：`{incomplete_count}`",
                 "",
             ]
         )
@@ -495,17 +662,33 @@ def main() -> int:
         target_iteration_dir = output_dir / iteration_name
         target_iteration_dir.mkdir(parents=True, exist_ok=True)
         summaries: list[dict[str, object]] = []
+        previous_by_label = {
+            item["task_label"]: item for item in iteration_summaries.get("iteration_01", [])
+        } if iteration_name == "iteration_02" else {}
 
         task_dirs = sorted(path for path in source_iteration_dir.iterdir() if path.is_dir() and path.name.startswith("task_"))
         for task_dir in task_dirs:
-            task_record = load_json(task_dir / "task_record.json")
-            state = load_json(task_dir / "env/state.json")
-            content, summary = build_doc(
-                task_dir=task_dir,
-                iteration_name=iteration_name,
-                task_record=task_record,
-                state=state,
-            )
+            task_payload = load_json(task_dir / "task.json")
+            task_record = load_json_if_exists(task_dir / "task_record.json")
+            state = load_json_if_exists(task_dir / "env/state.json")
+            qid = str(task_payload.get("task_id", "")).split("-")[-1] or "unknown"
+            previous_summary = previous_by_label.get(f"q{qid}")
+            if task_record is not None and state is not None:
+                content, summary = build_doc(
+                    task_dir=task_dir,
+                    iteration_name=iteration_name,
+                    task_payload=task_payload,
+                    task_record=task_record,
+                    state=state,
+                    previous_summary=previous_summary,
+                )
+            else:
+                content, summary = build_incomplete_doc(
+                    task_dir=task_dir,
+                    iteration_name=iteration_name,
+                    task_payload=task_payload,
+                    previous_summary=previous_summary,
+                )
             (target_iteration_dir / f"{task_dir.name}.md").write_text(content, encoding="utf-8")
             summaries.append(summary)
 
