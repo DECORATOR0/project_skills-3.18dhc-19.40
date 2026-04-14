@@ -16,7 +16,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from nlrl_skills.config import clone_system_config, load_system_config
-from nlrl_skills.data import load_converted_dataset
+from nlrl_skills.data import ensure_required_gold_overrides_loaded, load_converted_dataset
 from nlrl_skills.environment import SkillEnvironment
 from nlrl_skills.schemas import to_dict
 from nlrl_skills.skills import discover_skills, load_skill_detail
@@ -69,6 +69,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate trained skill on benchmark tasks")
     parser.add_argument("--config", type=str, default=str(DEFAULT_CONFIG), help="Path to configs/system.json")
     parser.add_argument("--skill-dir", type=str, help="Path to trained skill library root (overrides config)")
+    parser.add_argument("--gold-overrides-path", type=str, help="Optional gold override manifest path")
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--question", type=str, help="Single question ID to evaluate")
@@ -77,14 +78,19 @@ def main() -> None:
     group.add_argument("--all", action="store_true", help="Evaluate all questions in the dataset")
     parser.add_argument("--end", type=int, help="End question ID for range (inclusive)")
 
-    parser.add_argument("--concurrency", type=int, default=1, help="Reserved for future use")
+    parser.add_argument("--concurrency", type=int, default=1, help="Number of concurrent evaluation workers")
     parser.add_argument("--output", type=str, default="agent/skill_eval/execution_results")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     config = load_system_config(args.config)
+    path_overrides = {}
     if args.skill_dir:
-        config = clone_system_config(config, paths={"skill_library_root": args.skill_dir})
+        path_overrides["skill_library_root"] = args.skill_dir
+    if args.gold_overrides_path:
+        path_overrides["gold_overrides_path"] = args.gold_overrides_path
+    if path_overrides:
+        config = clone_system_config(config, paths=path_overrides)
 
     output_dir = Path(args.output) / datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = setup_logging(output_dir, args.verbose)
@@ -96,11 +102,16 @@ def main() -> None:
     skill = load_skill_detail(headers[0])
     log.info("Loaded skill: %s from %s", skill.header.name, config.skill_library_root)
 
-    tasks = load_converted_dataset(config.converted_dataset_path)
+    tasks = load_converted_dataset(config.converted_dataset_path, config.gold_overrides_path)
     tasks = _select_tasks(tasks, args)
     if not tasks:
         log.error("No tasks matched the selection criteria.")
         raise SystemExit(1)
+    ensure_required_gold_overrides_loaded(
+        tasks,
+        workspace_root=config.workspace_root,
+        active_override_path=config.gold_overrides_path,
+    )
     log.info("Evaluating %d tasks with skill=%s", len(tasks), skill.header.name)
 
     primary_env = SkillEnvironment(config)
@@ -151,7 +162,7 @@ def main() -> None:
         return result_entry
 
     results: list[dict | None] = [None] * total
-    concurrency = total
+    concurrency = max(1, min(args.concurrency, total))
     log.info("Launching %d concurrent evaluation workers", concurrency)
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         future_to_idx = {

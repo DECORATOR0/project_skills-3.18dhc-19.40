@@ -79,7 +79,8 @@ def read_text(path: Path) -> str:
 
 def write_text(path: Path, content: str) -> Path:
     ensure_dir(path.parent)
-    path.write_text(content, encoding="utf-8", newline="\n")
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
     return path
 
 
@@ -89,7 +90,8 @@ def read_json(path: Path) -> Any:
 
 def write_json(path: Path, data: Any) -> Path:
     ensure_dir(path.parent)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8", newline="\n")
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(data, indent=2, ensure_ascii=False, default=str))
     return path
 
 

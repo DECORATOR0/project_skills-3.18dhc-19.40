@@ -1,0 +1,394 @@
+{
+  "schema_version": "nlrl-gold-overrides-v1",
+  "dataset_name": "earth-bench-skill-rl",
+  "description": "Full-248 high-confidence gold fixes confirmed by the April 12, 2026 consistency scan. Keep benchmark/question.json and the base converted dataset immutable; apply this manifest as a load-time override layer.",
+  "scope": {
+    "source_scan_doc": "/data/xsy/project_skills-3.18dhc-19.40/实验设计与迭代/26.4.12_1231_全量248题金标一致性扫描.md",
+    "confirmed_high_conflict_question_ids": [
+      "15",
+      "37",
+      "42",
+      "45",
+      "47",
+      "48",
+      "70",
+      "78",
+      "81",
+      "91",
+      "100",
+      "107",
+      "111",
+      "105",
+      "163",
+      "173",
+      "211",
+      "213",
+      "227",
+      "232",
+      "234",
+      "240",
+      "241",
+      "246"
+    ],
+    "confirmed_high_conflict_count": 24
+  },
+  "overrides": [
+    {
+      "override_id": "full248-q15-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-15",
+      "original_question_id": "15",
+      "reason": "The stored maximum mean value is 281.05 K on May 31, which maps to option C.",
+      "updates": {
+        "gold_answer": "C",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "C"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q37-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-37",
+      "original_question_id": "37",
+      "reason": "The stored threshold-count result is 10, which maps to option A.",
+      "updates": {
+        "gold_answer": "A",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "A"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q42-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-42",
+      "original_question_id": "42",
+      "reason": "The stored threshold-ratio result is 25.48%, which maps to option B.",
+      "updates": {
+        "gold_answer": "B",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "B"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q45-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-45",
+      "original_question_id": "45",
+      "reason": "The stored threshold-ratio result is 15.66%, which maps to option B.",
+      "updates": {
+        "gold_answer": "B",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "B"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q47-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-47",
+      "original_question_id": "47",
+      "reason": "The stored TVDI mean is 0.5932, which maps to option A.",
+      "updates": {
+        "gold_answer": "A",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "A"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q48-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-48",
+      "original_question_id": "48",
+      "reason": "The stored linear trend is 0.012, which maps to option A.",
+      "updates": {
+        "gold_answer": "A",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "A"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q70-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-70",
+      "original_question_id": "70",
+      "reason": "The stored TVDI mean is 0.395, which maps to option A.",
+      "updates": {
+        "gold_answer": "A",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "A"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q78-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-78",
+      "original_question_id": "78",
+      "reason": "The stored threshold-ratio result is 54.79%, which maps to option B.",
+      "updates": {
+        "gold_answer": "B",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "B"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q81-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-81",
+      "original_question_id": "81",
+      "reason": "The stored threshold-ratio result is 13.67%, which maps to option B.",
+      "updates": {
+        "gold_answer": "B",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "B"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q91-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-91",
+      "original_question_id": "91",
+      "reason": "The stored June-August difference is 30.12, which maps to option C.",
+      "updates": {
+        "gold_answer": "C",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "C"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q100-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-100",
+      "original_question_id": "100",
+      "reason": "The stored intersection percentage is 1.35%, which maps to option A.",
+      "updates": {
+        "gold_answer": "A",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "A"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q107-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-107",
+      "original_question_id": "107",
+      "reason": "The stored difference is 0.034472317, which rounds to option C = 0.034.",
+      "updates": {
+        "gold_answer": "C",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "C"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q111-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-111",
+      "original_question_id": "111",
+      "reason": "The stored difference is 0.17082787, which rounds to option C = 0.17.",
+      "updates": {
+        "gold_answer": "C",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "C"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q105-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-105",
+      "original_question_id": "105",
+      "reason": "The stored trajectory ends at percentage_change = -32.59 while the base choices are stale. Patch choice C to -32.59% so the prompt, label, and trajectory align.",
+      "updates": {
+        "gold_answer": "C",
+        "choices": [
+          "-45.2%",
+          "-48.7%",
+          "-32.59%",
+          "-52.3%"
+        ],
+        "metadata": {
+          "gold_review_status": "choice_and_answer_alignment_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q163-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-163",
+      "original_question_id": "163",
+      "reason": "This open-answer task already ends with assistant output 0.408; repair the malformed gold_answer string.",
+      "updates": {
+        "gold_answer": "0.408",
+        "metadata": {
+          "gold_review_status": "open_answer_repaired_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q173-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-173",
+      "original_question_id": "173",
+      "reason": "This open-answer task already ends with assistant output -15.950; repair the malformed gold_answer string.",
+      "updates": {
+        "gold_answer": "-15.950",
+        "metadata": {
+          "gold_review_status": "open_answer_repaired_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q211-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-211",
+      "original_question_id": "211",
+      "reason": "The stored ceil_number result is 10 and the final assistant already outputs B, so gold_answer must be B.",
+      "updates": {
+        "gold_answer": "B",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q213-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-213",
+      "original_question_id": "213",
+      "reason": "The stored area result is 879.3746 and the final assistant already outputs A, so gold_answer must be A.",
+      "updates": {
+        "gold_answer": "A",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q227-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-227",
+      "original_question_id": "227",
+      "reason": "The stored centroid is about (765.0, 528.5) and the final assistant already outputs B, so gold_answer must be B.",
+      "updates": {
+        "gold_answer": "B",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q232-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-232",
+      "original_question_id": "232",
+      "reason": "The stored centroid is [[2653.876953125, 1368.9599609375]] and the final assistant already outputs A, so gold_answer must be A.",
+      "updates": {
+        "gold_answer": "A",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q234-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-234",
+      "original_question_id": "234",
+      "reason": "The stored nearest-distance conversion is about 53.05 m and the final assistant already outputs D, so gold_answer must be D.",
+      "updates": {
+        "gold_answer": "D",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q240-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-240",
+      "original_question_id": "240",
+      "reason": "The stored farthest harbor pair bbox matches option C and the final assistant already outputs C, so gold_answer must be C.",
+      "updates": {
+        "gold_answer": "C",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q241-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-241",
+      "original_question_id": "241",
+      "reason": "The stored farthest harbor pair bbox matches option B and the final assistant already outputs B, so gold_answer must be B.",
+      "updates": {
+        "gold_answer": "B",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    },
+    {
+      "override_id": "full248-q246-gold-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-246",
+      "original_question_id": "246",
+      "reason": "The stored centroid is about (666.0, 200.0) and the final assistant already outputs B, so gold_answer must be B.",
+      "updates": {
+        "gold_answer": "B",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    }
+  ]
+}

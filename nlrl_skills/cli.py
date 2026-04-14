@@ -4,10 +4,9 @@ import argparse
 from pathlib import Path
 
 from .config import clone_system_config, load_system_config
-from .data import convert_earth_bench_question_file
+from .data import convert_earth_bench_question_file, materialize_converted_dataset_with_overrides
 from .skills import discover_skills
 from .task_buckets import build_task_set_manifest, export_task_set_manifest
-from .task_local_trainer import TaskLocalParallelTrainer
 from .utils import read_text
 from .utils import write_json
 
@@ -30,12 +29,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, help="Path to configs/system.json")
     parser.add_argument("--skill-library-root", help="Optional override for the active skill library root.")
     parser.add_argument("--experience-buffer-path", help="Optional override for the active NL-Experience Buffer path.")
+    parser.add_argument("--gold-overrides-path", help="Optional override for a gold-answer / gold-trajectory patch manifest.")
     parser.add_argument("--run-root", help="Optional override for the output run root.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     convert = sub.add_parser("convert-earth-bench", help="Convert benchmark/question.json into the RL dataset schema.")
     convert.add_argument("--src", required=True, help="Source Earth-Bench question.json")
     convert.add_argument("--dst", required=True, help="Destination normalized question.json")
+
+    materialize = sub.add_parser(
+        "apply-gold-overrides",
+        help="Materialize a patched dataset JSON by applying a gold override manifest to the converted dataset.",
+    )
+    materialize.add_argument("--src", help="Base converted dataset path. Defaults to config.paths.converted_dataset_path.")
+    materialize.add_argument("--overrides", help="Override manifest path. Defaults to config.paths.gold_overrides_path or --gold-overrides-path.")
+    materialize.add_argument("--dst", required=True, help="Destination path for the patched dataset JSON.")
 
     inspect = sub.add_parser("inspect-skills", help="Inspect current generated skill headers.")
     inspect.add_argument("--output", help="Optional JSON output path")
@@ -75,6 +83,8 @@ def main() -> None:
         path_overrides["skill_library_root"] = args.skill_library_root
     if args.experience_buffer_path:
         path_overrides["experience_buffer_path"] = args.experience_buffer_path
+    if args.gold_overrides_path:
+        path_overrides["gold_overrides_path"] = args.gold_overrides_path
     if args.run_root:
         path_overrides["run_root"] = args.run_root
     if path_overrides:
@@ -82,6 +92,15 @@ def main() -> None:
 
     if args.command == "convert-earth-bench":
         path = convert_earth_bench_question_file(Path(args.src), Path(args.dst))
+        print(path)
+        return
+
+    if args.command == "apply-gold-overrides":
+        src_path = Path(args.src) if args.src else config.converted_dataset_path
+        override_path = Path(args.overrides) if args.overrides else config.gold_overrides_path
+        if override_path is None:
+            raise SystemExit("No override path provided. Use --overrides or configure paths.gold_overrides_path.")
+        path = materialize_converted_dataset_with_overrides(src_path, override_path, Path(args.dst))
         print(path)
         return
 
@@ -97,12 +116,18 @@ def main() -> None:
         from .data import load_converted_dataset
 
         output_dir = Path(args.output_dir) if args.output_dir else config.workspace_root / "data" / "task_sets" / f"task_local_parallel_seed_{args.seed}"
-        manifest = build_task_set_manifest(load_converted_dataset(config.converted_dataset_path), seed=args.seed, quota_scale=args.quota_scale)
+        manifest = build_task_set_manifest(
+            load_converted_dataset(config.converted_dataset_path, config.gold_overrides_path),
+            seed=args.seed,
+            quota_scale=args.quota_scale,
+        )
         export_task_set_manifest(output_dir, manifest)
         print(output_dir)
         return
 
     if args.command == "train-task-local-parallel":
+        from .task_local_trainer import TaskLocalParallelTrainer
+
         trainer = TaskLocalParallelTrainer(config)
         bootstrap_snapshot = Path(args.bootstrap_snapshot) if args.bootstrap_snapshot else None
         run_dir = trainer.train_tasks(

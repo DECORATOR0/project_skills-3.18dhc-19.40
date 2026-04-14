@@ -31,6 +31,7 @@ class PathsConfig:
     experience_buffer_path: str
     dataset_path: str
     converted_dataset_path: str
+    gold_overrides_path: str = ""
 
 
 @dataclass
@@ -78,6 +79,13 @@ class SystemConfig:
     @property
     def converted_dataset_path(self) -> Path:
         return Path(self.paths.converted_dataset_path).resolve()
+
+    @property
+    def gold_overrides_path(self) -> Path | None:
+        raw_path = str(getattr(self.paths, "gold_overrides_path", "") or "").strip()
+        if not raw_path:
+            return None
+        return Path(raw_path).resolve()
 
 
 def clone_system_config(

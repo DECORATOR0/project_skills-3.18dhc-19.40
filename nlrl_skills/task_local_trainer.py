@@ -14,7 +14,7 @@ from tqdm import tqdm
 from .actor import SkillActor
 from .config import SystemConfig, clone_system_config
 from .critic import SkillCritic
-from .data import load_converted_dataset, select_task, select_tasks
+from .data import ensure_required_gold_overrides_loaded, load_converted_dataset, select_task, select_tasks
 from .environment import SkillEnvironment
 from .llm import OpenAICompatibleLLM, log_llm_call
 from .prompting import render_prompt
@@ -573,9 +573,14 @@ class TaskLocalParallelTrainer:
         run_name: str | None = None,
         bootstrap_snapshot: Path | None = None,
     ) -> Path:
-        tasks = load_converted_dataset(self.config.converted_dataset_path)
+        tasks = load_converted_dataset(self.config.converted_dataset_path, self.config.gold_overrides_path)
         selected_tasks, manifest = self._select_batch_tasks(
             tasks, task_ids=task_ids, count=count, start_index=start_index,
+        )
+        ensure_required_gold_overrides_loaded(
+            selected_tasks,
+            workspace_root=self.config.workspace_root,
+            active_override_path=self.config.gold_overrides_path,
         )
         run_dir = self.prepare_run_dir(run_name)
         logger = self._build_logger(run_dir)

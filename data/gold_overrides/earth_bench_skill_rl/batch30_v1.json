@@ -1,0 +1,110 @@
+{
+  "schema_version": "nlrl-gold-overrides-v1",
+  "dataset_name": "earth-bench-skill-rl",
+  "description": "Corrections for the April 11, 2026 30-task v6 batch. Keep benchmark/question.json and the base converted dataset immutable; apply this manifest as a load-time override layer.",
+  "scope": {
+    "source_run": "/data/xsy/project_skills-3.18dhc-19.40/runs/2026/4/2026-4-11/20260411_211630_train_batch30_v6prompt_jh_gpt54_c4_datafix_bridge",
+    "selected_question_ids": [
+      "8",
+      "91",
+      "42",
+      "43",
+      "45",
+      "2",
+      "16",
+      "25",
+      "59",
+      "75",
+      "134",
+      "136",
+      "164",
+      "112",
+      "147",
+      "175",
+      "119",
+      "152",
+      "105",
+      "187",
+      "192",
+      "193",
+      "205",
+      "206",
+      "228",
+      "236",
+      "241",
+      "210",
+      "223",
+      "225"
+    ]
+  },
+  "overrides": [
+    {
+      "override_id": "batch30-q42-answer-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-42",
+      "original_question_id": "42",
+      "reason": "Align the gold answer and final assistant label with the stored trajectory value 25.48%. Prompt-level ATI threshold semantics still need a separate data-side review.",
+      "updates": {
+        "gold_answer": "B",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "B"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "batch30-q45-answer-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-45",
+      "original_question_id": "45",
+      "reason": "Align the gold answer and final assistant label with the stored trajectory value 15.66%. Prompt-level ATI threshold semantics still need a separate data-side review.",
+      "updates": {
+        "gold_answer": "B",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "B"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "batch30-q91-answer-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-91",
+      "original_question_id": "91",
+      "reason": "The stored trajectory computes June-August difference = 30.12, which maps to option C.",
+      "updates": {
+        "gold_answer": "C",
+        "gold_trajectory_patch": {
+          "set_final_assistant_content": "C"
+        },
+        "metadata": {
+          "gold_review_status": "trajectory_aligned_override"
+        }
+      }
+    },
+    {
+      "override_id": "batch30-q105-review-only",
+      "enabled": false,
+      "task_id": "earth-bench-c-105",
+      "original_question_id": "105",
+      "reason": "Blocked for now: the stored trajectory ends at -32.59%, but no option matches. Do not auto-apply until options or trajectory are regenerated."
+    },
+    {
+      "override_id": "batch30-q241-answer-fix",
+      "enabled": true,
+      "task_id": "earth-bench-c-241",
+      "original_question_id": "241",
+      "reason": "The stored farthest-pair bounding boxes map to option B, and the final assistant already outputs B.",
+      "updates": {
+        "gold_answer": "B",
+        "metadata": {
+          "gold_review_status": "answer_only_override"
+        }
+      }
+    }
+  ]
+}

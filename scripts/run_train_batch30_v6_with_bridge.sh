@@ -4,9 +4,9 @@ set -euo pipefail
 
 project_root="/data/xsy/project_skills-3.18dhc-19.40"
 python_bin="/data/xsy/miniconda3/envs/earth-bench-skill-eval/bin/python"
-config_path="$project_root/configs/system-train-xsy-gpt54-jh-v6-promptsnapshot.json"
+config_path="${CONFIG_PATH:-$project_root/configs/system-train-xsy-gpt54-jh-v6-promptsnapshot-goldfix248.json}"
 task_file="$project_root/data/task_sets/default_batch/train_all_30.txt"
-bootstrap_snapshot="$project_root/tmp/v6_bootstrap_snapshot"
+bootstrap_snapshot="${BOOTSTRAP_SNAPSHOT-$project_root/tmp/v6_bootstrap_snapshot}"
 runtime_root="$project_root/runs/temp/eo_runtime"
 compat_root="$project_root/benchmark/out"
 script_dir="$project_root/scripts"
@@ -16,6 +16,12 @@ concurrency="${CONCURRENCY:-4}"
 bridge_interval="${BRIDGE_INTERVAL_SECONDS:-1}"
 bridge_log="$project_root/runs/_launch_logs/${run_name}_bridge.log"
 pid_file="$project_root/runs/_launch_logs/${run_name}.pid"
+
+# Prevent stale shell overrides from silently rerouting actor/critic away from the JSON-configured Shanghai AI Lab endpoint.
+unset NLRL_LLM_MODEL NLRL_LLM_BASE_URL NLRL_LLM_API_KEY NLRL_LLM_API_MODE
+unset NLRL_ACTOR_MODEL NLRL_ACTOR_BASE_URL NLRL_ACTOR_API_KEY NLRL_ACTOR_API_MODE
+unset NLRL_CRITIC_MODEL NLRL_CRITIC_BASE_URL NLRL_CRITIC_API_KEY NLRL_CRITIC_API_MODE
+unset NLRL_EXECUTOR_MODEL NLRL_EXECUTOR_BASE_URL NLRL_EXECUTOR_API_KEY NLRL_EXECUTOR_API_MODE
 
 export NLRL_LLM_MAX_CONCURRENT_REQUESTS="${NLRL_LLM_MAX_CONCURRENT_REQUESTS:-4}"
 export NLRL_ACTOR_STREAM="${NLRL_ACTOR_STREAM:-1}"
@@ -57,7 +63,11 @@ printf '%s wrapper_pid=%s pid_file=%s\n' "$(date --iso-8601=seconds)" "$$" "$pid
 printf '%s config=%s\n' "$(date --iso-8601=seconds)" "$config_path"
 printf '%s prompt_root=%s\n' "$(date --iso-8601=seconds)" "$project_root/dhc-4.11prompt迭代/V6/prompt_root_snapshot"
 printf '%s task_file=%s\n' "$(date --iso-8601=seconds)" "$task_file"
-printf '%s bootstrap_snapshot=%s\n' "$(date --iso-8601=seconds)" "$bootstrap_snapshot"
+if [[ -n "$bootstrap_snapshot" ]]; then
+  printf '%s bootstrap_snapshot=%s\n' "$(date --iso-8601=seconds)" "$bootstrap_snapshot"
+else
+  printf '%s bootstrap_snapshot=%s\n' "$(date --iso-8601=seconds)" "<llm-single-skill-bootstrap>"
+fi
 printf '%s concurrency=%s llm_cap=%s actor_stream=%s actor_timeout=%s\n' \
   "$(date --iso-8601=seconds)" "$concurrency" "$NLRL_LLM_MAX_CONCURRENT_REQUESTS" \
   "$NLRL_ACTOR_STREAM" "$NLRL_ACTOR_TIMEOUT_SECONDS"
@@ -75,14 +85,20 @@ bridge_pid="$!"
 
 printf '%s bridge_started pid=%s bridge_log=%s\n' "$(date --iso-8601=seconds)" "$bridge_pid" "$bridge_log"
 
-set +e
-"$python_bin" -m nlrl_skills.cli \
-  --config "$config_path" \
-  train-task-local-parallel \
-  --concurrency "$concurrency" \
-  --task-file "$task_file" \
-  --bootstrap-snapshot "$bootstrap_snapshot" \
+cmd=(
+  "$python_bin" -m nlrl_skills.cli
+  --config "$config_path"
+  train-task-local-parallel
+  --concurrency "$concurrency"
+  --task-file "$task_file"
   --run-name "$run_name"
+)
+if [[ -n "$bootstrap_snapshot" ]]; then
+  cmd+=(--bootstrap-snapshot "$bootstrap_snapshot")
+fi
+
+set +e
+"${cmd[@]}"
 status="$?"
 set -e
 
