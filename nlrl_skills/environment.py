@@ -25,24 +25,45 @@ _DEFAULT_INIT_PHASE = SkillPhase(
     name="INIT",
     content=(
         "Explore the task data directory with `list_dir` to understand the available files.\n"
-        "Then decide which processing phase to enter based on file types.\n\n"
+        "Then move to IDENTIFY to decide which processing phase to enter.\n\n"
         "Available actions:\n"
         "- <CALL>list_dir</CALL><ARGS>{\"path\": \"DATA_DIR\"}</ARGS>\n"
-        "- <NEXT>PROCESS</NEXT> to begin processing\n"
-        "- <ANSWER>X</ANSWER> if you already know the answer"
+        "- <NEXT>IDENTIFY</NEXT> after you inspect the files"
     ),
     order=0,
 )
 
-_DEFAULT_PROCESS_PHASE = SkillPhase(
-    name="PROCESS",
+_DEFAULT_IDENTIFY_PHASE = SkillPhase(
+    name="IDENTIFY",
     content=(
-        "Process the task using the available EO tools.\n"
-        "Follow the tool chain suggested by the task type.\n\n"
-        "When you have enough evidence, move to CONCLUDE:\n"
-        "- <NEXT>CONCLUDE</NEXT>"
+        "Identify the task modality from the files already observed.\n"
+        "Choose exactly one processing phase.\n\n"
+        "Available actions:\n"
+        "- <NEXT>PROCESS_SPECTRUM</NEXT>\n"
+        "- <NEXT>PROCESS_PRODUCTS</NEXT>\n"
+        "- <NEXT>PROCESS_RGB</NEXT>"
     ),
     order=1,
+)
+
+_CANONICAL_PROCESS_PHASES = (
+    "PROCESS_SPECTRUM",
+    "PROCESS_PRODUCTS",
+    "PROCESS_RGB",
+)
+
+_RESOLVED_CONCLUDE_PREFIX = (
+    "Mode: resolved conclude.\n"
+    "You already have enough evidence.\n"
+    "Only map the evidence to the final choice.\n"
+    "Do not rerun the full pipeline."
+)
+
+_FALLBACK_CONCLUDE_PREFIX = (
+    "Mode: fallback conclude.\n"
+    "Remaining steps are low.\n"
+    "Do not expand the workflow any further.\n"
+    "Use only the evidence already collected to finish."
 )
 
 _DEFAULT_CONCLUDE_PHASE = SkillPhase(
@@ -57,13 +78,40 @@ _DEFAULT_CONCLUDE_PHASE = SkillPhase(
 
 
 def _ensure_phases(phases: dict[str, SkillPhase]) -> dict[str, SkillPhase]:
-    """Guarantee at least INIT and CONCLUDE phases exist."""
+    """Guarantee the minimum strict-state phases exist."""
     result = dict(phases)
     if "INIT" not in result:
         result["INIT"] = _DEFAULT_INIT_PHASE
+    if "IDENTIFY" not in result:
+        result["IDENTIFY"] = _DEFAULT_IDENTIFY_PHASE
     if "CONCLUDE" not in result:
         result["CONCLUDE"] = _DEFAULT_CONCLUDE_PHASE
     return result
+
+
+def _build_phase_transition_graph(phases: dict[str, SkillPhase]) -> dict[str, list[str]]:
+    """Build the fixed first-version phase graph for strict runtime gating."""
+    graph: dict[str, list[str]] = {}
+    if "INIT" in phases:
+        graph["INIT"] = ["IDENTIFY"] if "IDENTIFY" in phases else []
+    if "IDENTIFY" in phases:
+        graph["IDENTIFY"] = [name for name in _CANONICAL_PROCESS_PHASES if name in phases]
+    for name in _CANONICAL_PROCESS_PHASES:
+        if name in phases:
+            graph[name] = ["CONCLUDE"] if "CONCLUDE" in phases else []
+    if "CONCLUDE" in phases:
+        graph["CONCLUDE"] = []
+    return graph
+
+
+def _build_conclude_phase_prompt(conclude_phase: SkillPhase, *, fallback: bool) -> str:
+    prefix = _FALLBACK_CONCLUDE_PREFIX if fallback else _RESOLVED_CONCLUDE_PREFIX
+    return (
+        "=== Phase: CONCLUDE ===\n\n"
+        f"{prefix}\n\n"
+        f"{conclude_phase.content}\n\n"
+        "Follow the instructions above for this phase."
+    )
 
 
 class SkillEnvironment:
@@ -135,7 +183,8 @@ class SkillEnvironment:
         ensure_dir(run_dir)
 
         phases = _ensure_phases(active_skill.phases)
-        phase_names = sorted(phases.keys(), key=lambda n: phases[n].order)
+        transition_graph = _build_phase_transition_graph(phases)
+        phase_names = sorted(transition_graph.keys(), key=lambda n: phases[n].order)
         _logger.debug(
             "Skill '%s' has %d phases: %s",
             active_skill.header.name, len(phases), phase_names,
@@ -149,6 +198,8 @@ class SkillEnvironment:
 
         init_phase = phases["INIT"]
         initial_prompt = self._build_initial_prompt(task, active_skill, init_phase)
+        resolved_conclude_prompt = _build_conclude_phase_prompt(phases["CONCLUDE"], fallback=False)
+        fallback_conclude_prompt = _build_conclude_phase_prompt(phases["CONCLUDE"], fallback=True)
 
         self.toolbox.set_active_skill_dir(active_skill.header.skill_dir)
         self.toolbox.set_active_task_data_dir(task.data_dir)
@@ -162,6 +213,9 @@ class SkillEnvironment:
                     allowed_tools=active_skill.header.allowed_tools or None,
                     max_steps=self.config.runtime.max_executor_steps,
                     log_dir=run_dir / "executor",
+                    phase_transition_graph=transition_graph,
+                    resolved_conclude_prompt=resolved_conclude_prompt,
+                    fallback_conclude_prompt=fallback_conclude_prompt,
                 )
             )
         finally:

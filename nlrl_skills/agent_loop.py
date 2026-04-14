@@ -149,6 +149,36 @@ def _prepare_messages_for_call(messages: list[LLMMessage], max_context_chars: in
     return _fit_messages_to_budget(tightened, max_context_chars)
 
 
+def _format_allowed_next(allowed_next: list[str]) -> str:
+    if not allowed_next:
+        return "(none)"
+    return ", ".join(allowed_next)
+
+
+def _invalid_phase_transition_feedback(current_phase: str, allowed_next: list[str]) -> str:
+    return (
+        "Invalid phase transition.\n"
+        f"Current phase: {current_phase}\n"
+        f"Allowed next: {_format_allowed_next(allowed_next)}"
+    )
+
+
+def _unknown_phase_feedback(current_phase: str, allowed_next: list[str]) -> str:
+    return (
+        "Unknown phase.\n"
+        f"Current phase: {current_phase}\n"
+        f"Allowed next: {_format_allowed_next(allowed_next)}"
+    )
+
+
+def _invalid_answer_feedback(current_phase: str) -> str:
+    return (
+        "Invalid answer output.\n"
+        f"Current phase: {current_phase}\n"
+        "Answer is only allowed in CONCLUDE."
+    )
+
+
 class PhaseExecutorAgent:
     """ReAct executor that uses tag-based progressive disclosure with skill phases."""
 
@@ -175,6 +205,9 @@ class PhaseExecutorAgent:
         allowed_tools: list[str] | None,
         max_steps: int,
         log_dir: Path,
+        phase_transition_graph: dict[str, list[str]],
+        resolved_conclude_prompt: str,
+        fallback_conclude_prompt: str,
     ) -> tuple[ParsedAction, str, list[ToolCallRecord], list[PhaseTransition]]:
         tool_protocol = load_prompt(self.prompt_root / "tool_agent_protocol.md")
         full_system = (
@@ -194,8 +227,28 @@ class PhaseExecutorAgent:
         final_action = ParsedAction(action_type="answer", answer="", thought="max steps reached")
 
         allowed_set = set(allowed_tools or [])
+        recognized_phases = set(phase_transition_graph)
 
         for step_idx in range(1, max_steps + 1):
+            remaining_steps = max_steps - step_idx + 1
+            if current_phase != "CONCLUDE" and remaining_steps <= 3:
+                raw_outputs.append("[runtime_feedback] [fallback conclude] remaining_steps<=3")
+                transitions.append(
+                    PhaseTransition(
+                        step_index=step_idx,
+                        from_phase=current_phase,
+                        to_phase="CONCLUDE",
+                        thought="[fallback conclude] remaining_steps<=3",
+                    )
+                )
+                current_phase = "CONCLUDE"
+                messages.append(
+                    LLMMessage(
+                        role="user",
+                        content=fallback_conclude_prompt,
+                    )
+                )
+
             result = self.llm.chat(
                 _prepare_messages_for_call(messages, self.max_context_chars)
             )
@@ -210,8 +263,18 @@ class PhaseExecutorAgent:
             parsed = parse_executor_tags(result.text)
 
             if parsed.action_type == "answer":
-                final_action = parsed
-                break
+                if current_phase == "CONCLUDE":
+                    final_action = parsed
+                    break
+                feedback = _invalid_answer_feedback(current_phase)
+                raw_outputs.append(f"[runtime_feedback]\n{feedback}")
+                messages.append(
+                    LLMMessage(
+                        role="user",
+                        content=feedback,
+                    )
+                )
+                continue
 
             if parsed.action_type == "call":
                 tool_name = parsed.tool_name
@@ -268,37 +331,63 @@ class PhaseExecutorAgent:
 
             elif parsed.action_type == "next":
                 next_phase = parsed.next_phase
-                if next_phase in phases:
+                allowed_next = phase_transition_graph.get(current_phase, [])
+                if next_phase not in recognized_phases:
+                    feedback = _unknown_phase_feedback(current_phase, allowed_next)
+                    raw_outputs.append(f"[runtime_feedback]\n{feedback}")
+                    messages.append(
+                        LLMMessage(
+                            role="user",
+                            content=feedback,
+                        )
+                    )
+                elif next_phase not in allowed_next:
+                    feedback = _invalid_phase_transition_feedback(current_phase, allowed_next)
+                    raw_outputs.append(f"[runtime_feedback]\n{feedback}")
+                    messages.append(
+                        LLMMessage(
+                            role="user",
+                            content=feedback,
+                        )
+                    )
+                elif next_phase in phases:
+                    transition_thought = parsed.thought
+                    if next_phase == "CONCLUDE":
+                        transition_thought = (
+                            f"[resolved conclude] {parsed.thought}".strip()
+                            if parsed.thought else "[resolved conclude]"
+                        )
                     transitions.append(
                         PhaseTransition(
                             step_index=step_idx,
                             from_phase=current_phase,
                             to_phase=next_phase,
-                            thought=parsed.thought,
+                            thought=transition_thought,
                         )
                     )
                     current_phase = next_phase
-                    phase_content = phases[next_phase].content
+                    phase_content = (
+                        resolved_conclude_prompt
+                        if next_phase == "CONCLUDE"
+                        else (
+                            f"=== Phase: {next_phase} ===\n\n"
+                            f"{phases[next_phase].content}\n\n"
+                            "Follow the instructions above for this phase."
+                        )
+                    )
                     messages.append(
                         LLMMessage(
                             role="user",
-                            content=(
-                                f"=== Phase: {next_phase} ===\n\n"
-                                f"{phase_content}\n\n"
-                                "Follow the instructions above for this phase."
-                            ),
+                            content=phase_content,
                         )
                     )
                 else:
-                    available = ", ".join(sorted(phases.keys()))
+                    feedback = _unknown_phase_feedback(current_phase, allowed_next)
+                    raw_outputs.append(f"[runtime_feedback]\n{feedback}")
                     messages.append(
                         LLMMessage(
                             role="user",
-                            content=(
-                                f"Unknown phase '{next_phase}'. "
-                                f"Available phases: {available}. "
-                                "Choose a valid phase with <NEXT>PHASE_NAME</NEXT>."
-                            ),
+                            content=feedback,
                         )
                     )
 
