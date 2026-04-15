@@ -476,6 +476,9 @@ class Toolbox:
                 normalized[key] = self._normalize_eo_argument_value(value)
                 continue
             normalized[key] = value
+        # Some historical gold traces and prompts still use `image_path`.
+        if "image_path" in normalized and "input_image_path" not in normalized:
+            normalized["input_image_path"] = normalized["image_path"]
         return normalized
 
     def _register_builtin_tools(self) -> None:

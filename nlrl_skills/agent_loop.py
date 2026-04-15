@@ -15,6 +15,18 @@ _TRUNCATION_MARKER = "\n\n[truncated]\n"
 _OLDER_MESSAGE_LIMIT = 1600
 _MIN_MESSAGE_LIMIT = 600
 _RECENT_TOOL_RESULTS_TO_KEEP = 3
+_SEMANTIC_FAILURE_MARKERS = (
+    "failed to call model",
+    "unknown mode",
+    "traceback",
+    "exception",
+    "no such file",
+    "not found",
+    "does not exist",
+    "permission denied",
+    "missing required positional argument",
+    "missing required positional arguments",
+)
 
 _TAG_RE = re.compile(r"<(THOUGHT|CALL|ARGS|NEXT|ANSWER)>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
 
@@ -80,6 +92,58 @@ def _truncate_text(text: str, limit: int) -> str:
     if limit <= len(_TRUNCATION_MARKER) + 32:
         return text[:limit]
     return text[: limit - len(_TRUNCATION_MARKER)] + _TRUNCATION_MARKER
+
+
+def _extract_semantic_failure(value: object) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, dict):
+        error_value = value.get("error")
+        if error_value:
+            return str(error_value)
+
+        returncode = value.get("returncode")
+        if returncode not in (None, 0):
+            return str(
+                value.get("stderr")
+                or value.get("stdout")
+                or f"returncode={returncode}"
+            )
+
+        for key in ("stderr", "stdout", "observation", "raw_result"):
+            nested = _extract_semantic_failure(value.get(key))
+            if nested:
+                return nested
+        return ""
+
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            nested = _extract_semantic_failure(item)
+            if nested:
+                return nested
+        return ""
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        if text[:1] in {"{", "["}:
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if parsed is not None:
+                nested = _extract_semantic_failure(parsed)
+                if nested:
+                    return nested
+        lower = text.lower()
+        for marker in _SEMANTIC_FAILURE_MARKERS:
+            if marker in lower:
+                return text
+        return ""
+
+    return ""
 
 
 def _tool_result_indexes(messages: list[LLMMessage]) -> list[int]:
@@ -286,13 +350,10 @@ class PhaseExecutorAgent:
                             f"Tool `{tool_name}` is not in allowed-tools for this skill."
                         )
                     raw_result = self.toolbox.execute(tool_name, arguments)
-                    if isinstance(raw_result, dict) and raw_result.get("returncode") not in (None, 0):
+                    semantic_failure = _extract_semantic_failure(raw_result)
+                    if semantic_failure:
                         success = False
-                        error = str(
-                            raw_result.get("stderr")
-                            or raw_result.get("stdout")
-                            or f"returncode={raw_result.get('returncode')}"
-                        )
+                        error = semantic_failure
                     else:
                         success = True
                         error = ""

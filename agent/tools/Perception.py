@@ -1,4 +1,8 @@
 import argparse
+import ast
+import csv
+import json
+import os
 
 from pathlib import Path
 from fastmcp import FastMCP
@@ -387,9 +391,6 @@ def calculate_bbox_area(bboxes, gsd=None):
     return total_area
    
 def get_model_output(model_name: str, input_image_path: str, **args):
-    import pandas as pd
-    import os
-
     def _resolve_results_csv() -> Path:
         candidate = Path(__file__).resolve().parents[2] / "benchmark" / "model_results.csv"
         if not candidate.exists():
@@ -404,78 +405,174 @@ def get_model_output(model_name: str, input_image_path: str, **args):
                 return pointer
         return candidate
 
+    def _parse_literal(value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return ""
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                return loader(text)
+            except Exception:
+                continue
+        return text
+
     def _norm_path(path_like):
         text = str(path_like).strip().replace("\\", "/")
         while "//" in text:
             text = text.replace("//", "/")
         lower = text.lower()
-        if "/earth-bench/" in lower:
-            marker = "/earth-bench/"
-            idx = lower.index(marker)
-            text = text[idx + len(marker) :]
-        else:
-            for marker in ("/benchmark/data/", "/benchmark/earth-bench/"):
-                if marker in lower:
-                    idx = lower.index(marker)
-                    text = text[idx + len(marker) :]
-                    break
+        for marker in (
+            "/earth-bench/",
+            "earth-bench/",
+            "/benchmark/data/",
+            "benchmark/data/",
+            "/benchmark/earth-bench/",
+            "benchmark/earth-bench/",
+        ):
+            if marker in lower:
+                idx = lower.index(marker)
+                text = text[idx + len(marker) :]
+                break
         return os.path.normpath(text).replace("\\", "/")
 
-    def _match_rows(df, model, path_like):
-        target = _norm_path(path_like)
-        subset = df[df["model"] == model].copy()
-        if subset.empty:
-            return subset
-        subset["_norm_path"] = subset["file_path"].astype(str).map(_norm_path)
-        exact = subset[subset["_norm_path"] == target]
-        if not exact.empty:
+    def _norm_lookup_key(path_like, paired_path=None):
+        if paired_path is not None:
+            return (_norm_path(path_like), _norm_path(paired_path))
+        text = str(path_like).strip()
+        if text.startswith("(") and text.endswith(")") and "," in text:
+            left, right = text[1:-1].split(",", 1)
+            return (_norm_path(left), _norm_path(right))
+        return _norm_path(path_like)
+
+    def _norm_text(value):
+        return str(value or "").strip().lower()
+
+    def _norm_bbox(value):
+        parsed = _parse_literal(value)
+        if parsed in (None, ""):
+            return None
+        try:
+            return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+        except TypeError:
+            return str(parsed)
+
+    def _load_rows():
+        rows = []
+        with _resolve_results_csv().open(newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle, delimiter=";"):
+                rows.append(
+                    {
+                        "file_path": row.get("file_path", ""),
+                        "model": row.get("model", ""),
+                        "text_prompt": row.get("text_prompt", ""),
+                        "bbox": row.get("bbox", ""),
+                        "result": _parse_literal(row.get("result", "")),
+                    }
+                )
+        return rows
+
+    def _match_rows(rows, model, path_like, paired_path=None):
+        target = _norm_lookup_key(path_like, paired_path=paired_path)
+        subset = [row for row in rows if row["model"] == model]
+        if not subset:
+            return []
+        exact = [row for row in subset if _norm_lookup_key(row["file_path"]) == target]
+        if exact:
             return exact
-        base = os.path.basename(target)
-        base_matches = subset[subset["_norm_path"].str.endswith("/" + base) | (subset["_norm_path"] == base)]
+        if isinstance(target, tuple):
+            return []
+        target_base = os.path.basename(target)
+        base_matches = [
+            row
+            for row in subset
+            if isinstance(_norm_lookup_key(row["file_path"]), str)
+            and (
+                _norm_lookup_key(row["file_path"]).endswith("/" + target_base)
+                or _norm_lookup_key(row["file_path"]) == target_base
+            )
+        ]
         if len(base_matches) == 1:
             return base_matches
-        return exact
+        return []
 
-    results = pd.read_csv(_resolve_results_csv(), sep=';')
+    def _match_single_row(rows, *, model, path_like, paired_path=None, text_prompt=None, bbox=None):
+        matches = _match_rows(rows, model, path_like, paired_path=paired_path)
+        if text_prompt is not None:
+            norm_prompt = _norm_text(text_prompt)
+            prompt_matches = [row for row in matches if _norm_text(row["text_prompt"]) == norm_prompt]
+            if prompt_matches:
+                matches = prompt_matches
+        if bbox is not None:
+            norm_bbox = _norm_bbox(bbox)
+            bbox_matches = [row for row in matches if _norm_bbox(row["bbox"]) == norm_bbox]
+            if bbox_matches:
+                matches = bbox_matches
+        return matches[0] if matches else None
+
+    rows = _load_rows()
     result = None
     try:
-        # classification
-        if model_name in ['MSCN', 'RemoteCLIP']:
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-        # detection
-        elif model_name == 'Strip-R-CNN':
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-        elif model_name == 'SM3Det':
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-            result = result[args['text_prompt']]
-        # visual grounding
-        elif model_name == 'RemoteSAM':
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-            result = result[args['text_prompt']]
-        # counting
-        elif model_name == 'InstructSAM':
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-            result = result[args['text_prompt']]
-        # segmentation
-        elif model_name == 'SAM2':
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-            result = result[args['bbox']]
-        elif model_name in ['ChangeOS', 'ChangeOS_Building_Extraction']:
-            matches = _match_rows(results, model_name, input_image_path)
-            result = matches.values[0]
-    except:
-        pass
-    
+        if model_name in ["MSCN", "RemoteCLIP"]:
+            match = _match_single_row(rows, model=model_name, path_like=input_image_path)
+            result = match["result"] if match else None
+        elif model_name == "Strip-R-CNN":
+            match = _match_single_row(
+                rows,
+                model=model_name,
+                path_like=input_image_path,
+                text_prompt=args.get("text_prompt"),
+            )
+            result = match["result"] if match else None
+        elif model_name == "SM3Det":
+            match = _match_single_row(
+                rows,
+                model=model_name,
+                path_like=input_image_path,
+                text_prompt=args.get("text_prompt"),
+            )
+            result = match["result"] if match else None
+        elif model_name == "RemoteSAM":
+            match = _match_single_row(
+                rows,
+                model=model_name,
+                path_like=input_image_path,
+                text_prompt=args.get("text_prompt"),
+            )
+            result = match["result"] if match else None
+        elif model_name == "InstructSAM":
+            match = _match_single_row(
+                rows,
+                model=model_name,
+                path_like=input_image_path,
+                text_prompt=args.get("text_prompt"),
+            )
+            result = match["result"] if match else None
+        elif model_name == "SAM2":
+            match = _match_single_row(
+                rows,
+                model=model_name,
+                path_like=input_image_path,
+                bbox=args.get("bbox"),
+            )
+            result = match["result"] if match else None
+        elif model_name in ["ChangeOS", "ChangeOS_Building_Extraction"]:
+            match = _match_single_row(
+                rows,
+                model=model_name,
+                path_like=input_image_path,
+                paired_path=args.get("post_image_path"),
+            )
+            result = match["result"] if match else None
+    except Exception:
+        result = None
+
     if result is None:
-        return 'Failed to call model'
-    else:
-        return result
+        return "Failed to call model"
+    return result
 
 
 
