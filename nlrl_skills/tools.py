@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import inspect
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -52,10 +53,11 @@ def _truncate(value: Any, limit: int = 4000) -> str:
 
 
 class EOToolRuntime:
-    def __init__(self, workspace_root: Path, temp_root: Path):
+    def __init__(self, workspace_root: Path, temp_root: Path, artifact_alias_registry: Path | None = None):
         self.workspace_root = workspace_root
         self.tools_dir = workspace_root / "agent" / "tools"
         self.temp_root = ensure_dir(temp_root)
+        self.artifact_alias_registry = artifact_alias_registry or (self.temp_root / ".artifact_aliases.jsonl")
         self._registry: dict[str, ToolSpec] = {}
         self._load_all()
 
@@ -292,7 +294,9 @@ class EOToolRuntime:
         module_name = f"nlrl_runtime_{module_path.stem.lower()}_{abs(hash(str(module_path))) % 100000}"
         with _TOOL_IMPORT_LOCK:
             old_argv = sys.argv[:]
+            old_alias_registry = os.environ.get("EO_ARTIFACT_ALIAS_REGISTRY")
             try:
+                os.environ["EO_ARTIFACT_ALIAS_REGISTRY"] = str(self.artifact_alias_registry)
                 sys.argv = [str(module_path), "--temp_dir", str(self.temp_root / module_path.stem.lower())]
                 spec = importlib.util.spec_from_file_location(module_name, module_path)
                 if spec is None or spec.loader is None:
@@ -304,6 +308,10 @@ class EOToolRuntime:
                 return module
             finally:
                 sys.argv = old_argv
+                if old_alias_registry is None:
+                    os.environ.pop("EO_ARTIFACT_ALIAS_REGISTRY", None)
+                else:
+                    os.environ["EO_ARTIFACT_ALIAS_REGISTRY"] = old_alias_registry
 
     def _load_all(self) -> None:
         for module_file in EO_TOOL_FILES:
@@ -351,6 +359,7 @@ class ToolContext:
     workspace_root: Path
     skill_library_root: Path
     temp_root: Path
+    artifact_alias_registry: Path | None = None
     python_executable: str = "python"
     shell_program: str = "/bin/bash"
     eo_runtime: EOToolRuntime | None = None
@@ -361,14 +370,22 @@ class ToolContext:
         ensure_dir(self.workspace_root)
         ensure_dir(self.skill_library_root)
         ensure_dir(self.temp_root)
+        if self.artifact_alias_registry is None:
+            self.artifact_alias_registry = self.temp_root / ".artifact_aliases.jsonl"
         if self.eo_runtime is None:
-            self.eo_runtime = EOToolRuntime(self.workspace_root, self.temp_root / "eo_runtime")
+            self.eo_runtime = EOToolRuntime(
+                self.workspace_root,
+                self.temp_root / "eo_runtime",
+                self.artifact_alias_registry,
+            )
 
 
 class Toolbox:
     def __init__(self, context: ToolContext):
         self.context = context
         self._registry: dict[str, ToolSpec] = {}
+        self._artifact_alias_cache: dict[str, str] = {}
+        self._artifact_alias_cache_mtime_ns: int | None = None
         self._register_builtin_tools()
         for spec in self.context.eo_runtime.specs():
             self._registry[spec.name] = ToolSpec(
@@ -415,10 +432,62 @@ class Toolbox:
 
         return _call
 
+    def _normalize_artifact_alias_key(self, user_path: str) -> str:
+        normalized = user_path.replace("\\", "/").strip()
+        while "//" in normalized:
+            normalized = normalized.replace("//", "/")
+        return normalized
+
+    def _load_artifact_aliases(self) -> dict[str, str]:
+        registry = self.context.artifact_alias_registry
+        if registry is None or not registry.exists():
+            self._artifact_alias_cache = {}
+            self._artifact_alias_cache_mtime_ns = None
+            return {}
+        stat = registry.stat()
+        if self._artifact_alias_cache_mtime_ns == stat.st_mtime_ns:
+            return self._artifact_alias_cache
+
+        mapping: dict[str, str] = {}
+        for line in registry.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            canonical = payload.get("canonical")
+            aliases = payload.get("aliases")
+            if not isinstance(canonical, str) or not isinstance(aliases, list):
+                continue
+            for alias in aliases:
+                if not isinstance(alias, str):
+                    continue
+                key = self._normalize_artifact_alias_key(alias)
+                if key:
+                    mapping[key] = canonical
+        self._artifact_alias_cache = mapping
+        self._artifact_alias_cache_mtime_ns = stat.st_mtime_ns
+        return mapping
+
+    def _lookup_artifact_alias(self, user_path: str) -> str | None:
+        key = self._normalize_artifact_alias_key(user_path)
+        if not key:
+            return None
+        mapping = self._load_artifact_aliases()
+        target = mapping.get(key)
+        if target and Path(target).exists():
+            return target
+        return None
+
     def _resolve_temp_artifact_path(self, user_path: str) -> str:
         normalized = user_path.replace("\\", "/").strip()
         if not normalized:
             return user_path
+        aliased = self._lookup_artifact_alias(normalized)
+        if aliased is not None:
+            return aliased
         candidate = Path(normalized)
         if candidate.is_absolute():
             return str(candidate) if candidate.exists() else user_path

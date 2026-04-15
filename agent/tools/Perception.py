@@ -3,6 +3,8 @@ import ast
 import csv
 import json
 import os
+import re
+import shutil
 
 from pathlib import Path
 from fastmcp import FastMCP
@@ -17,6 +19,120 @@ args, unknown = parser.parse_known_args()
 
 TEMP_DIR = Path(args.temp_dir)
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+ARTIFACT_ALIAS_REGISTRY = Path(os.environ["EO_ARTIFACT_ALIAS_REGISTRY"]) if os.environ.get("EO_ARTIFACT_ALIAS_REGISTRY") else None
+
+
+def _normalize_alias_text(path_like) -> str:
+    if path_like is None:
+        return ""
+    text = str(path_like).strip().replace("\\", "/")
+    while "//" in text:
+        text = text.replace("//", "/")
+    return text
+
+
+def _extract_question_ids(*values) -> list[str]:
+    ids: list[str] = []
+    for value in values:
+        text = _normalize_alias_text(value)
+        if not text:
+            continue
+        for match in re.finditer(r"question(\d+)|earth-bench-c-(\d+)", text):
+            qid = match.group(1) or match.group(2)
+            if qid and qid not in ids:
+                ids.append(qid)
+    return ids
+
+
+def _as_workspace_path(path_like) -> Path:
+    path = Path(str(path_like))
+    return path if path.is_absolute() else WORKSPACE_ROOT / path
+
+
+def _candidate_artifact_paths(result_path, output_path) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path | None) -> None:
+        if path is None:
+            return
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    result_text = _normalize_alias_text(result_path)
+    output_text = _normalize_alias_text(output_path)
+    for raw in (result_text, output_text):
+        if raw:
+            add(_as_workspace_path(raw))
+
+    basenames = [Path(text).name for text in (result_text, output_text) if text]
+    qids = _extract_question_ids(result_text, output_text)
+    for qid in qids:
+        for folder in (
+            f"benchmark/model_out/question{qid}",
+            f"benchmark/out/question{qid}",
+            f"benchmark/out/earth-bench-c-{qid}",
+            f"benchmark/out/benchmark/data/question{qid}",
+            f"benchmark/out/benchmark/out/question{qid}",
+        ):
+            for basename in basenames:
+                add(WORKSPACE_ROOT / folder / basename)
+    return candidates
+
+
+def _validate_artifact_file(path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(f"Artifact file does not exist: {path}")
+    try:
+        read_image(str(path))
+    except Exception as exc:
+        raise RuntimeError(f"Artifact file is unreadable: {path}") from exc
+
+
+def _append_artifact_aliases(canonical_path: Path, aliases: list[str]) -> None:
+    if ARTIFACT_ALIAS_REGISTRY is None:
+        return
+    canonical = str(canonical_path.resolve())
+    normalized_aliases = sorted({text for text in (_normalize_alias_text(alias) for alias in aliases) if text})
+    if not normalized_aliases:
+        return
+    ARTIFACT_ALIAS_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+    with ARTIFACT_ALIAS_REGISTRY.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"canonical": canonical, "aliases": normalized_aliases}, ensure_ascii=False) + "\n")
+
+
+def _materialize_model_artifact(result_path, output_path) -> str:
+    destination = Path(str(output_path))
+    destination = destination if destination.is_absolute() else (TEMP_DIR / destination)
+    candidates = _candidate_artifact_paths(result_path, output_path)
+    source = next((candidate for candidate in candidates if candidate.exists()), None)
+    if source is None:
+        raise FileNotFoundError(
+            f"Offline artifact source was not found for result={result_path} output_path={output_path}"
+        )
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != destination.resolve():
+        shutil.copy2(source, destination)
+    _validate_artifact_file(destination)
+
+    aliases: list[str] = [str(result_path), str(output_path), str(destination), str(source)]
+    for path in candidates:
+        aliases.append(str(path))
+        try:
+            aliases.append(str(path.relative_to(WORKSPACE_ROOT)).replace("\\", "/"))
+        except ValueError:
+            pass
+    try:
+        aliases.append(str(destination.relative_to(WORKSPACE_ROOT)).replace("\\", "/"))
+    except ValueError:
+        pass
+    _append_artifact_aliases(destination, aliases)
+    return f"Result save at {destination}"
 
 
 @mcp.tool(description="""
@@ -392,7 +508,7 @@ def calculate_bbox_area(bboxes, gsd=None):
    
 def get_model_output(model_name: str, input_image_path: str, **args):
     def _resolve_results_csv() -> Path:
-        candidate = Path(__file__).resolve().parents[2] / "benchmark" / "model_results.csv"
+        candidate = WORKSPACE_ROOT / "benchmark" / "model_results.csv"
         if not candidate.exists():
             raise FileNotFoundError(f"Missing model results file: {candidate}")
         try:
@@ -569,6 +685,14 @@ def get_model_output(model_name: str, input_image_path: str, **args):
             result = match["result"] if match else None
     except Exception:
         result = None
+
+    if model_name in {"SAM2", "ChangeOS", "ChangeOS_Building_Extraction"}:
+        if result is None:
+            raise FileNotFoundError(f"Missing offline artifact lookup for {model_name}: {input_image_path}")
+        output_path = args.get("output_path")
+        if not output_path:
+            raise ValueError(f"{model_name} requires output_path for artifact materialization")
+        return _materialize_model_artifact(result, output_path)
 
     if result is None:
         return "Failed to call model"
