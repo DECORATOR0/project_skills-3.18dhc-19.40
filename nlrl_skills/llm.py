@@ -151,14 +151,25 @@ class OpenAICompatibleLLM:
 
     def _build_responses_payload(self, messages: list[LLMMessage]) -> dict[str, Any]:
         instructions_parts = [m.content for m in messages if m.role == "system" and m.content.strip()]
-        conversation_input = [
-            {
-                "role": m.role,
-                "content": [{"type": "input_text", "text": m.content}],
-            }
-            for m in messages
-            if m.role != "system"
-        ]
+        conversation_input = []
+        for message in messages:
+            if message.role == "system":
+                continue
+            role = message.role.strip().lower()
+            if role == "assistant":
+                conversation_input.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content,
+                    }
+                )
+                continue
+            conversation_input.append(
+                {
+                    "role": role or "user",
+                    "content": [{"type": "input_text", "text": message.content}],
+                }
+            )
         if not conversation_input:
             conversation_input = [
                 {

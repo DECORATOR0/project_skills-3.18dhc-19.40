@@ -4,7 +4,7 @@ set -euo pipefail
 
 project_root="/data/xsy/project_skills-3.18dhc-19.40"
 python_bin="/data/xsy/miniconda3/envs/earth-bench-skill-eval/bin/python"
-config_path="${CONFIG_PATH:-$project_root/configs/system-train-xsy-gpt54-jh-v6-promptsnapshot-goldfix248.json}"
+config_path="${CONFIG_PATH:-$project_root/configs/system-train-xsy-gpt54-jh-v6-promptsnapshot-goldfix248-dataalignv1.json}"
 task_file="$project_root/data/task_sets/default_batch/train_all_30.txt"
 bootstrap_snapshot="${BOOTSTRAP_SNAPSHOT-$project_root/tmp/v6_bootstrap_snapshot}"
 runtime_root="$project_root/runs/temp/eo_runtime"

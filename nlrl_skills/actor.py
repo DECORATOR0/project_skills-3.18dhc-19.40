@@ -39,7 +39,6 @@ class SkillActor:
                 {
                     "header": skill.header.__dict__,
                     "body": skill.body,
-                    "phases": {name: phase.content for name, phase in skill.phases.items()},
                     "phase_order": sorted(skill.phases.keys(), key=lambda n: skill.phases[n].order),
                     "resources": skill.resources,
                 },

@@ -7,13 +7,15 @@ import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 ACTION_PATTERN = re.compile(
-    r"(?P<call><CALL>(?P<call_name>.*?)</CALL><ARGS>(?P<call_args>.*?)</ARGS>)"
+    r"(?:(?:<THOUGHT>(?P<thought_text>.*?)</THOUGHT>)\s*)?"
+    r"(?:(?P<call><CALL>(?P<call_name>.*?)</CALL>\s*<ARGS>(?P<call_args>.*?)</ARGS>)"
     r"|(?P<next><NEXT>(?P<next_name>.*?)</NEXT>)"
     r"|(?P<answer><ANSWER>(?P<answer_text>.*?)</ANSWER>)"
-    r"|(?P<feedback>\[runtime_feedback\]\s*(?P<feedback_text>.*?))(?=(?:\s*<THOUGHT>|\s*<CALL>|\s*<NEXT>|\s*<ANSWER>|\Z))",
+    r"|(?P<feedback>\[runtime_feedback\]\s*(?P<feedback_text>.*?))(?=(?:\s*<THOUGHT>|\s*<CALL>|\s*<NEXT>|\s*<ANSWER>|\s*\[runtime_feedback\]|\Z)))",
     re.S,
 )
 
@@ -26,6 +28,13 @@ ERROR_LIKE_MARKERS = (
     "no such file",
     "exception",
     "traceback",
+    "unknown mode",
+    "missing required positional argument",
+    "missing required positional arguments",
+    "jsondecodeerror",
+    "valueerror",
+    "keyerror",
+    "typeerror",
 )
 
 GUESS_MARKERS = (
@@ -76,6 +85,53 @@ def clean_text(text: object, limit: int = 160) -> str:
     return text[: limit - 3].rstrip() + "..."
 
 
+def try_parse_json(text: str) -> Any | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    try:
+        return json.loads(stripped)
+    except Exception:
+        return None
+
+
+def flatten_payload_texts(value: Any, *, depth: int = 0) -> list[str]:
+    if value is None or depth > 3:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        texts = [text]
+        parsed = try_parse_json(text)
+        if parsed is not None and parsed != text:
+            texts.extend(flatten_payload_texts(parsed, depth=depth + 1))
+        return texts
+    if isinstance(value, dict):
+        texts: list[str] = []
+        for key, item in value.items():
+            texts.append(str(key))
+            texts.extend(flatten_payload_texts(item, depth=depth + 1))
+        return texts
+    if isinstance(value, list):
+        texts: list[str] = []
+        for item in value[:8]:
+            texts.extend(flatten_payload_texts(item, depth=depth + 1))
+        return texts
+    return [str(value)]
+
+
+def summarize_payload(value: Any, *, limit: int = 320) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        parsed = try_parse_json(value)
+        if parsed is not None:
+            return clean_text(parsed, limit=limit)
+        return clean_text(value, limit=limit)
+    return clean_text(value, limit=limit)
+
+
 def summarize_observation(observation: object) -> str:
     return clean_text(observation, limit=180)
 
@@ -92,8 +148,61 @@ def render_choices(task_payload: dict) -> list[str]:
 
 
 def observation_is_error_like(observation: object) -> bool:
-    text = clean_text(observation, limit=500).lower()
-    return any(marker in text for marker in ERROR_LIKE_MARKERS)
+    return bool(first_error_signal({"observation": observation})[0])
+
+
+def first_error_signal(payload: Any) -> tuple[str, str]:
+    if isinstance(payload, dict):
+        error_value = payload.get("error")
+        if error_value:
+            return "error-field", clean_text(error_value, limit=220)
+
+        returncode = payload.get("returncode")
+        if returncode not in (None, 0):
+            detail = payload.get("stderr") or payload.get("stdout") or f"returncode={returncode}"
+            return "returncode-nonzero", clean_text(detail, limit=220)
+
+        for stream_name in ("stderr", "stdout", "observation", "raw_result"):
+            stream_value = payload.get(stream_name)
+            if not stream_value:
+                continue
+            for fragment in flatten_payload_texts(stream_value):
+                lower = fragment.lower()
+                if any(marker in lower for marker in ERROR_LIKE_MARKERS):
+                    return f"{stream_name}-error", clean_text(fragment, limit=220)
+
+    for fragment in flatten_payload_texts(payload):
+        lower = fragment.lower()
+        if any(marker in lower for marker in ERROR_LIKE_MARKERS):
+            return "error-like-text", clean_text(fragment, limit=220)
+
+    return "", ""
+
+
+def analyze_tool_record(record: dict[str, Any]) -> dict[str, str | bool]:
+    signal, detail = first_error_signal(
+        {
+            "error": record.get("error"),
+            "returncode": record.get("raw_result", {}).get("returncode") if isinstance(record.get("raw_result"), dict) else None,
+            "stderr": record.get("raw_result", {}).get("stderr") if isinstance(record.get("raw_result"), dict) else None,
+            "stdout": record.get("raw_result", {}).get("stdout") if isinstance(record.get("raw_result"), dict) else None,
+            "observation": record.get("observation"),
+            "raw_result": record.get("raw_result"),
+        }
+    )
+    success_flag = bool(record.get("success", False))
+    if not success_flag:
+        status = "failed"
+    elif signal:
+        status = "degraded"
+    else:
+        status = "success"
+    return {
+        "status": status,
+        "signal": signal or "none",
+        "detail": detail,
+        "success_flag": success_flag,
+    }
 
 
 def extract_success_snippet(observation: object) -> str:
@@ -121,6 +230,16 @@ def final_phase(transitions: list[dict[str, object]]) -> str:
     return str(transitions[-1].get("to_phase") or "INIT")
 
 
+def parse_call_args(call_args: str) -> Any:
+    parsed = try_parse_json(call_args)
+    if parsed is not None:
+        return parsed
+    cleaned = call_args.strip()
+    if not cleaned:
+        return {}
+    return {"_raw": cleaned}
+
+
 def parse_actions(
     raw_output: str,
     tools: list[dict[str, object]],
@@ -134,19 +253,21 @@ def parse_actions(
         if match.group("call"):
             tool = tools[tool_idx] if tool_idx < len(tools) else {}
             tool_idx += 1
-            observation = tool.get("observation", "")
-            status = "success"
-            if not tool.get("success", False):
-                status = "failed"
-            elif observation_is_error_like(observation):
-                status = "degraded"
+            analysis = analyze_tool_record(tool)
             actions.append(
                 {
                     "kind": "call",
                     "tool_name": match.group("call_name").strip(),
                     "step_index": tool.get("step_index"),
-                    "status": status,
-                    "observation": observation,
+                    "status": analysis["status"],
+                    "signal": analysis["signal"],
+                    "signal_detail": analysis["detail"],
+                    "success_flag": analysis["success_flag"],
+                    "thought": clean_text(tool.get("thought") or match.group("thought_text") or "", limit=420),
+                    "arguments": tool.get("arguments") or parse_call_args(match.group("call_args") or ""),
+                    "observation": tool.get("observation", ""),
+                    "raw_result": tool.get("raw_result"),
+                    "error": tool.get("error", ""),
                     "feedbacks": [],
                 }
             )
@@ -167,7 +288,10 @@ def parse_actions(
                     "valid": valid,
                     "step_index": transition.get("step_index") if valid else None,
                     "from_phase": transition.get("from_phase") if valid else None,
-                    "thought": transition.get("thought") if valid else "",
+                    "thought": clean_text(
+                        transition.get("thought") if valid else (match.group("thought_text") or ""),
+                        limit=420,
+                    ),
                     "feedbacks": [],
                 }
             )
@@ -178,6 +302,7 @@ def parse_actions(
                 {
                     "kind": "answer",
                     "answer": clean_text(match.group("answer_text"), limit=80),
+                    "thought": clean_text(match.group("thought_text") or "", limit=420),
                     "step_index": None,
                     "valid": True,
                     "feedbacks": [],
@@ -342,7 +467,7 @@ def build_reason_lines(
     return deduped
 
 
-def render_action(action: dict[str, object], final_phase_name: str) -> str:
+def render_action_overview(action: dict[str, object], final_phase_name: str) -> str:
     if action["kind"] == "call":
         prefix = f"- step {action.get('step_index')}: 调用 `{action['tool_name']}`"
         status = str(action.get("status"))
@@ -354,7 +479,8 @@ def render_action(action: dict[str, object], final_phase_name: str) -> str:
             suffix = "，成功"
         detail = ""
         if status in {"failed", "degraded"}:
-            detail = f"。返回：`{summarize_observation(action.get('observation', ''))}`"
+            signal = str(action.get("signal") or "none")
+            detail = f"。信号：`{signal}`。返回：`{summarize_observation(action.get('observation', ''))}`"
         else:
             snippet = extract_success_snippet(action.get("observation", ""))
             if snippet:
@@ -379,6 +505,108 @@ def render_action(action: dict[str, object], final_phase_name: str) -> str:
     return f"- action: `{clean_text(action.get('text', ''), limit=160)}`"
 
 
+def render_action_detail(action: dict[str, object], final_phase_name: str) -> list[str]:
+    lines: list[str] = []
+    kind = str(action.get("kind"))
+
+    if kind == "call":
+        step_index = action.get("step_index")
+        tool_name = action.get("tool_name")
+        lines.extend(
+            [
+                f"### step {step_index} `{tool_name}`",
+                "",
+                f"- 动作：调用 `{tool_name}`",
+                f"- 运行时状态：`{action.get('status')}`",
+                f"- 原始 success 标记：`{action.get('success_flag')}`",
+            ]
+        )
+        signal = str(action.get("signal") or "none")
+        if signal != "none":
+            lines.append(f"- 错误信号：`{signal}`")
+        signal_detail = summarize_payload(action.get("signal_detail"), limit=260)
+        if signal_detail:
+            lines.append(f"- 错误细节：`{signal_detail}`")
+        thought = str(action.get("thought") or "").strip()
+        if thought:
+            lines.append(f"- executor thought：{thought}")
+        args_text = summarize_payload(action.get("arguments"), limit=420)
+        if args_text:
+            lines.append(f"- 调用参数：`{args_text}`")
+        observation_text = summarize_payload(action.get("observation"), limit=420)
+        if observation_text:
+            lines.append(f"- observation：`{observation_text}`")
+        raw_result_text = summarize_payload(action.get("raw_result"), limit=420)
+        if raw_result_text and raw_result_text != observation_text:
+            lines.append(f"- raw_result：`{raw_result_text}`")
+        error_text = summarize_payload(action.get("error"), limit=240)
+        if error_text:
+            lines.append(f"- error 字段：`{error_text}`")
+        feedbacks = [clean_text(item, limit=220) for item in action.get("feedbacks", []) if str(item).strip()]
+        if feedbacks:
+            lines.append(f"- 紧随其后的 runtime_feedback：`{' / '.join(feedbacks)}`")
+        lines.append("")
+        return lines
+
+    if kind == "next":
+        target = action.get("target")
+        step_index = action.get("step_index")
+        if action.get("valid"):
+            lines.extend(
+                [
+                    f"### step {step_index} `NEXT {target}`",
+                    "",
+                    f"- 动作：phase 切换到 `{target}`",
+                    f"- from -> to：`{action.get('from_phase')}` -> `{target}`",
+                ]
+            )
+            thought = str(action.get("thought") or "").strip()
+            if thought:
+                lines.append(f"- executor thought：{thought}")
+        else:
+            lines.extend(
+                [
+                    f"### action `NEXT {target}`",
+                    "",
+                    f"- 动作：试图切换到 `{target}`，但被运行时拦下",
+                ]
+            )
+        feedbacks = [clean_text(item, limit=220) for item in action.get("feedbacks", []) if str(item).strip()]
+        if feedbacks:
+            lines.append(f"- runtime_feedback：`{' / '.join(feedbacks)}`")
+        lines.append("")
+        return lines
+
+    if kind == "answer":
+        answer = action.get("answer") or "(empty)"
+        header = f"### final `{answer}`" if action.get("valid") else f"### action `ANSWER {answer}`"
+        lines.extend(
+            [
+                header,
+                "",
+                f"- 动作：在 `{final_phase_name}` 尝试输出答案 `{answer}`" if action.get("valid") else f"- 动作：尝试提前输出答案 `{answer}`",
+            ]
+        )
+        thought = str(action.get("thought") or "").strip()
+        if thought:
+            lines.append(f"- executor thought：{thought}")
+        feedbacks = [clean_text(item, limit=220) for item in action.get("feedbacks", []) if str(item).strip()]
+        if feedbacks:
+            lines.append(f"- runtime_feedback：`{' / '.join(feedbacks)}`")
+        lines.append("")
+        return lines
+
+    lines.extend(
+        [
+            "### action",
+            "",
+            f"- {clean_text(action.get('text', ''), limit=220)}",
+            "",
+        ]
+    )
+    return lines
+
+
 def build_doc(
     *,
     task_dir: Path,
@@ -399,7 +627,12 @@ def build_doc(
     doc_name = f"{task_dir.name}.md"
     doc_title = f"# {task_dir.name}"
     answer_phase = final_phase(transitions)
-    action_lines = [render_action(action, answer_phase) for action in parse_actions(raw_output, tools, transitions)]
+    gold_answer = str(state.get("task_context", {}).get("gold_answer") or task_payload.get("gold_answer") or "")
+    parsed_actions = parse_actions(raw_output, tools, transitions)
+    overview_lines = [render_action_overview(action, answer_phase) for action in parsed_actions]
+    detail_lines: list[str] = []
+    for action in parsed_actions:
+        detail_lines.extend(render_action_detail(action, answer_phase))
     reason_lines = build_reason_lines(
         task_success=task_success,
         transitions=transitions,
@@ -414,11 +647,23 @@ def build_doc(
     invalid_answer_count = raw_output.count("Invalid answer output.")
     fallback_conclude = any("[fallback conclude]" in str(item.get("thought", "")) for item in transitions)
     resolved_conclude = any("[resolved conclude]" in str(item.get("thought", "")) for item in transitions)
-    tool_failures = sum(1 for item in tools if not item.get("success", False))
-    tool_degraded = sum(1 for item in tools if item.get("success", False) and observation_is_error_like(item.get("observation", "")))
+    tool_failures = 0
+    tool_degraded = 0
+    degraded_tools: Counter[str] = Counter()
+    failed_tools: Counter[str] = Counter()
+    for item in tools:
+        analysis = analyze_tool_record(item)
+        tool_name = str(item.get("tool_name") or "")
+        if analysis["status"] == "failed":
+            tool_failures += 1
+            failed_tools[tool_name] += 1
+        elif analysis["status"] == "degraded":
+            tool_degraded += 1
+            degraded_tools[tool_name] += 1
     max_step = max(
         [0, *[int(item.get("step_index", 0)) for item in tools], *[int(item.get("step_index", 0)) for item in transitions]]
     )
+    executor_action_count = sum(1 for action in parsed_actions if action.get("kind") != "feedback")
 
     lines = [
         doc_title,
@@ -427,6 +672,7 @@ def build_doc(
         "",
         f"入口文件：[task_record.json]({task_dir / 'task_record.json'}:1)",
         f"状态文件：[state.json]({task_dir / 'env/state.json'}:1)",
+        f"任务文件：[task.json]({task_dir / 'task.json'}:1)",
         "",
         "## 题目",
         "",
@@ -441,6 +687,7 @@ def build_doc(
         f"- iteration：`{iteration_name}`",
         f"- modality / bucket：`{task_record.get('modality')}` / `{task_record.get('training_bucket')}`",
         f"- 是否成功：`{task_success}`",
+        f"- 金标答案：`{gold_answer or '(empty)'}`",
         f"- 最终答案：`{final_answer or '(empty)'}`",
         f"- phase 路径：`{phase_path(transitions)}`",
         f"- 最终答题阶段：`{answer_phase}`",
@@ -450,6 +697,7 @@ def build_doc(
         "## Step 节奏",
         "",
         f"- 记录到的最大 step：`{max_step}`",
+        f"- executor 动作数：`{executor_action_count}`",
         f"- 工具调用数：`{len(tools)}`",
         f"- 工具失败数：`{tool_failures}`",
         f"- 错误样式返回数：`{tool_degraded}`",
@@ -458,10 +706,15 @@ def build_doc(
         f"- 未知 phase 反馈：`{unknown_phase_count}`",
         f"- 非 CONCLUDE 作答反馈：`{invalid_answer_count}`",
         f"- conclude 模式：`{'fallback' if fallback_conclude else 'resolved' if resolved_conclude else 'none'}`",
+        f"- 是否有 env_result：`{bool(env_result)}`",
         "",
-        "## Step 行为细节",
+        "## Step 概览",
         "",
-        *action_lines,
+        *overview_lines,
+        "",
+        "## 详细执行轨迹",
+        "",
+        *detail_lines,
         "",
         "## 成败原因",
         "",
@@ -480,6 +733,12 @@ def build_doc(
         "phase_path": phase_path(transitions),
         "note": reason_lines[0] if reason_lines else "",
         "reason_lines": reason_lines,
+        "gold_answer": gold_answer,
+        "final_answer": final_answer,
+        "degraded_count": tool_degraded,
+        "failed_count": tool_failures,
+        "degraded_tools": dict(degraded_tools),
+        "failed_tools": dict(failed_tools),
     }
     lines.extend(render_iteration_compare_section(previous_summary, current_summary))
     return "\n".join(lines), current_summary
@@ -532,6 +791,7 @@ def build_incomplete_doc(
         "## Step 节奏",
         "",
         "- 记录到的最大 step：`0`",
+        "- executor 动作数：`0`",
         "- 工具调用数：`0`",
         "- 工具失败数：`0`",
         "- 错误样式返回数：`0`",
@@ -540,8 +800,14 @@ def build_incomplete_doc(
         "- 未知 phase 反馈：`0`",
         "- 非 CONCLUDE 作答反馈：`0`",
         "- conclude 模式：`none`",
+        "- 是否有 env_result：`False`",
         "",
-        "## Step 行为细节",
+        "## Step 概览",
+        "",
+        "- 生成文档时只存在 `task.json` / `task_bucket.json`，执行轨迹尚未落盘。",
+        "- 按当前要求，这题在复盘目录中按失败计入。",
+        "",
+        "## 详细执行轨迹",
         "",
         "- 生成文档时只存在 `task.json` / `task_bucket.json`，执行轨迹尚未落盘。",
         "- 按当前要求，这题在复盘目录中按失败计入。",
@@ -563,6 +829,12 @@ def build_incomplete_doc(
         "phase_path": "INIT -> (unfinished)",
         "note": "未完成，按失败计入。",
         "reason_lines": reason_lines,
+        "gold_answer": gold_answer,
+        "final_answer": "",
+        "degraded_count": 0,
+        "failed_count": 0,
+        "degraded_tools": {},
+        "failed_tools": {},
     }
     lines.extend(render_iteration_compare_section(previous_summary, summary))
     return "\n".join(lines), summary
@@ -576,20 +848,24 @@ def write_iteration_readme(
     run_dir: Path,
 ) -> None:
     incomplete_count = sum(1 for item in summaries if "(unfinished)" in str(item.get("phase_path", "")))
+    degraded_tasks = sum(1 for item in summaries if int(item.get("degraded_count", 0)) > 0)
+    failed_tasks = sum(1 for item in summaries if int(item.get("failed_count", 0)) > 0)
     lines = [
         f"# {iteration_name} 逐题复盘",
         "",
         f"- 来源 run：`{run_dir}`",
         f"- 题目数：`{len(summaries)}`",
         f"- 未完成按失败计入：`{incomplete_count}`",
+        f"- 含错误样式返回的题数：`{degraded_tasks}`",
+        f"- 含显式失败调用的题数：`{failed_tasks}`",
         "",
-        "| 题号 | 文档 | 成功 | phase 路径 | 备注 |",
-        "| --- | --- | --- | --- | --- |",
+        "| 题号 | 文档 | 成功 | phase 路径 | degraded | failed | 备注 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for item in summaries:
         note = clean_text(item["note"], limit=80)
         lines.append(
-            f"| {item['task_label']} | [{item['task_dir_name']}]({item['doc_name']}) | `{item['success']}` | `{item['phase_path']}` | {note} |"
+            f"| {item['task_label']} | [{item['task_dir_name']}]({item['doc_name']}) | `{item['success']}` | `{item['phase_path']}` | `{item.get('degraded_count', 0)}` | `{item.get('failed_count', 0)}` | {note} |"
         )
     lines.append("")
     (iteration_dir / "README.md").write_text("\n".join(lines), encoding="utf-8")
@@ -601,6 +877,7 @@ def write_root_readme(
     run_dir: Path,
     run_name: str,
     report_path: Path | None,
+    anomaly_report_name: str | None,
     iteration_summaries: dict[str, list[dict[str, object]]],
 ) -> None:
     lines = [
@@ -618,22 +895,175 @@ def write_root_readme(
             "",
             "- [iteration_01](iteration_01/README.md)",
             "- [iteration_02](iteration_02/README.md)",
-            "",
+            "- [两轮对错总表](两轮对错总表.md)",
         ]
     )
+    if anomaly_report_name:
+        lines.append(f"- [工具异常返回分析](../{anomaly_report_name})")
+    lines.append("")
     for name, summaries in iteration_summaries.items():
         success_count = sum(1 for item in summaries if item["success"])
         incomplete_count = sum(1 for item in summaries if "(unfinished)" in str(item.get("phase_path", "")))
+        degraded_tasks = sum(1 for item in summaries if int(item.get("degraded_count", 0)) > 0)
+        failed_tasks = sum(1 for item in summaries if int(item.get("failed_count", 0)) > 0)
         lines.extend(
             [
                 f"## {name}",
                 "",
                 f"- success：`{success_count}/{len(summaries)}`",
                 f"- 未完成按失败计入：`{incomplete_count}`",
+                f"- 含错误样式返回的题数：`{degraded_tasks}`",
+                f"- 含显式失败调用的题数：`{failed_tasks}`",
                 "",
             ]
         )
     (output_dir / "README.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def format_tool_counts(mapping: dict[str, object]) -> str:
+    if not mapping:
+        return "0"
+    parts = []
+    for name, count in sorted(mapping.items()):
+        parts.append(f"{name} x{count}")
+    return " / ".join(parts)
+
+
+def write_cross_iteration_table(output_dir: Path, iteration_summaries: dict[str, list[dict[str, object]]]) -> None:
+    iter1 = {item["task_label"]: item for item in iteration_summaries.get("iteration_01", [])}
+    iter2 = {item["task_label"]: item for item in iteration_summaries.get("iteration_02", [])}
+    labels = [item["task_label"] for item in iteration_summaries.get("iteration_01", [])]
+    for item in iteration_summaries.get("iteration_02", []):
+        if item["task_label"] not in labels:
+            labels.append(item["task_label"])
+
+    both_right = 0
+    both_wrong = 0
+    recovered = 0
+    regressed = 0
+    rows: list[str] = []
+
+    for idx, label in enumerate(labels, 1):
+        prev = iter1.get(label, {})
+        cur = iter2.get(label, {})
+        prev_success = bool(prev.get("success"))
+        cur_success = bool(cur.get("success"))
+        if prev_success and cur_success:
+            change = "持平"
+            both_right += 1
+        elif (not prev_success) and (not cur_success):
+            change = "持平"
+            both_wrong += 1
+        elif (not prev_success) and cur_success:
+            change = "捞回"
+            recovered += 1
+        else:
+            change = "回落"
+            regressed += 1
+        prev_label = "对" if prev_success else "错"
+        cur_label = "对" if cur_success else "错"
+        if "(unfinished)" in str(cur.get("phase_path", "")):
+            cur_label += "（未完成）"
+        rows.append(
+            f"| {idx:02d} | {label} | {prev_label} | {cur_label} | {change} | `{prev.get('degraded_count', 0)}/{prev.get('failed_count', 0)}` | `{cur.get('degraded_count', 0)}/{cur.get('failed_count', 0)}` | [iter1](iteration_01/{prev.get('doc_name')}) / [iter2](iteration_02/{cur.get('doc_name')}) |"
+        )
+
+    lines = [
+        "# 两轮对错总表",
+        "",
+        f"- `iteration_01`：`{sum(1 for item in iter1.values() if item.get('success'))}/{len(iter1)}`",
+        f"- `iteration_02`：`{sum(1 for item in iter2.values() if item.get('success'))}/{len(iter2)}`",
+        f"- 两轮都对：`{both_right}`",
+        f"- 两轮都错：`{both_wrong}`",
+        f"- 第二轮捞回：`{recovered}`",
+        f"- 第二轮回落：`{regressed}`",
+        "- `degraded/failed` 列的口径：前者表示表面 success 但返回内容带错误信号，后者表示运行时已经记成失败。",
+        "",
+        "| 序号 | 题号 | iteration_01 | iteration_02 | 变化 | iter1 degraded/failed | iter2 degraded/failed | 文档 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        *rows,
+        "",
+    ]
+    (output_dir / "两轮对错总表.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_tool_anomaly_summary(
+    output_path: Path,
+    *,
+    run_dir: Path,
+    iteration_summaries: dict[str, list[dict[str, object]]],
+) -> None:
+    lines = [
+        "# 工具异常返回分析",
+        "",
+        f"- run dir：`{run_dir}`",
+        "- 统计口径：`degraded` 表示 `success=true`，但 `observation/raw_result/stdout` 已经带出明显错误信号；`failed` 表示运行时已经把这次调用记成失败。",
+        "",
+        "## 总量",
+        "",
+        "| iteration | success | degraded steps | degraded tasks | failed steps | failed tasks |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+
+    anomaly_rows: list[tuple[str, dict[str, object]]] = []
+    total_degraded_steps = 0
+    total_failed_steps = 0
+
+    for iteration_name in ("iteration_01", "iteration_02"):
+        summaries = iteration_summaries.get(iteration_name, [])
+        success_count = sum(1 for item in summaries if item.get("success"))
+        degraded_steps = sum(int(item.get("degraded_count", 0)) for item in summaries)
+        failed_steps = sum(int(item.get("failed_count", 0)) for item in summaries)
+        degraded_tasks = sum(1 for item in summaries if int(item.get("degraded_count", 0)) > 0)
+        failed_tasks = sum(1 for item in summaries if int(item.get("failed_count", 0)) > 0)
+        total_degraded_steps += degraded_steps
+        total_failed_steps += failed_steps
+        lines.append(
+            f"| {iteration_name} | `{success_count}/{len(summaries)}` | `{degraded_steps}` | `{degraded_tasks}` | `{failed_steps}` | `{failed_tasks}` |"
+        )
+        for item in summaries:
+            if int(item.get("degraded_count", 0)) > 0 or int(item.get("failed_count", 0)) > 0:
+                anomaly_rows.append((iteration_name, item))
+
+    lines.extend(
+        [
+            "",
+            f"- 两轮合计 `degraded` step：`{total_degraded_steps}`",
+            f"- 两轮合计 `failed` step：`{total_failed_steps}`",
+            "",
+            "## 受影响任务",
+            "",
+            "| iteration | 题号 | 成功 | degraded | failed | degraded tools | failed tools | 文档 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+
+    for iteration_name, item in anomaly_rows:
+        lines.append(
+            f"| {iteration_name} | {item['task_label']} | `{item['success']}` | `{item.get('degraded_count', 0)}` | `{item.get('failed_count', 0)}` | {format_tool_counts(item.get('degraded_tools', {}))} | {format_tool_counts(item.get('failed_tools', {}))} | [{item['task_dir_name']}]({iteration_name}/{item['doc_name']}) |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 共同根因",
+            "",
+            f"- [Perception.py](/data/xsy/project_skills-3.18dhc-19.40/agent/tools/Perception.py) 的 `_norm_path()` 只处理带前导斜杠的 `\"/benchmark/data/\"`。`model_results.csv` 里的相对路径是 `benchmark/data/...`，所以单图感知工具经常在匹配阶段就落空。",
+            f"- 同一个 [Perception.py](/data/xsy/project_skills-3.18dhc-19.40/agent/tools/Perception.py) 里，`SM3Det` / `InstructSAM` / `RemoteSAM` / `SAM2` 的结果解包也有第二层问题。代码先取 `matches.values[0]`，拿到的是 ndarray，后面又用文本 prompt 或 bbox 去索引，这条路径从代码上看也会掉进 `except` 并回到 `\"Failed to call model\"`。这里是基于源码和 `model_results.csv` 行格式做的判断。",
+            f"- `ChangeOS` 还有额外的 pair-path 错配。[Perception.py](/data/xsy/project_skills-3.18dhc-19.40/agent/tools/Perception.py) 只拿 `pre_image_path` 去匹配，`model_results.csv` 里的键却是 `(pre, post)` 二元组，所以 `q223` / `q225` 这类题会稳定退化。",
+            f"- [agent_loop.py](/data/xsy/project_skills-3.18dhc-19.40/nlrl_skills/agent_loop.py) 现在把 success 的语义定义成“没有抛异常，或 subprocess `returncode` 为 0”。像 `\"Failed to call model\"` 这种失败字符串，或者 `stdout` 里打印 `{{\"error\": ...}}` 但进程正常退出的脚本，都会被记成 success。",
+            f"- [critic.py](/data/xsy/project_skills-3.18dhc-19.40/nlrl_skills/critic.py) 传给 critic 的 `tool_trajectory` 只保留 `tool / success / error`。很多 `degraded` case 没有 `error` 字段，critic 看到的是“工具成功调用”，训练反馈会被带偏。",
+            "",
+            "## 对工作流的影响",
+            "",
+            "- executor 有时能从 observation 文本里意识到工具坏了，于是转去猜答案或提前收尾。",
+            "- runtime 本身不会把这类 case 视作失败，不会触发真正的失败分支、失败统计或更强的回退逻辑。",
+            "- 逐题复盘如果只看 `success` 字段，会把假成功写成“成功”，所以这次重跑文档时把 `degraded` 单独拆出来了。",
+            "",
+        ]
+    )
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def latest_training_report(report_root: Path, run_name: str) -> Path | None:
@@ -653,6 +1083,7 @@ def main() -> int:
     run_name = run_dir.name
     output_name = args.output_name or f"{now_stamp()}_严格状态机两轮30题逐题复盘"
     output_dir = report_root / output_name
+    anomaly_report_path = report_root / f"{output_name}_工具异常返回分析.md"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     iteration_summaries: dict[str, list[dict[str, object]]] = {}
@@ -705,6 +1136,13 @@ def main() -> int:
         run_dir=run_dir,
         run_name=run_name,
         report_path=latest_training_report(report_root, run_name),
+        anomaly_report_name=anomaly_report_path.name,
+        iteration_summaries=iteration_summaries,
+    )
+    write_cross_iteration_table(output_dir, iteration_summaries)
+    write_tool_anomaly_summary(
+        anomaly_report_path,
+        run_dir=run_dir,
         iteration_summaries=iteration_summaries,
     )
     print(output_dir)

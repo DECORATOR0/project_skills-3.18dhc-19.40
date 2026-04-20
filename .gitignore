@@ -10,6 +10,7 @@ runtime_state/
 benchmark/out/
 benchmark/data/
 benchmark/question.json
+benchmark/question_dataalign_v1.json
 benchmark/model_results.csv
 
 # Training and evaluation artifacts

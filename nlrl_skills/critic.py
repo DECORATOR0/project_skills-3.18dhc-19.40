@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from .config import SystemConfig
 from .llm import OpenAICompatibleLLM, log_llm_call
@@ -14,6 +15,17 @@ class SkillCritic:
     def __init__(self, config: SystemConfig):
         self.config = config
         self.llm = OpenAICompatibleLLM(config.critic)
+
+    @staticmethod
+    def _truncate_gold_args(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(k): SkillCritic._truncate_gold_args(v)
+                for k, v in list(value.items())[:3]
+            }
+        if isinstance(value, list):
+            return [SkillCritic._truncate_gold_args(v) for v in value[:3]]
+        return value
 
     @staticmethod
     def _summarize_gold_trajectory(gold_trajectory: list[dict]) -> list[dict]:
@@ -31,7 +43,7 @@ class SkillCritic:
                         raw_args = {"raw": raw_args}
                 steps.append({
                     "tool_name": str(fn.get("name", "")),
-                    "arguments": raw_args,
+                    "arguments": SkillCritic._truncate_gold_args(raw_args),
                 })
         return steps
 
@@ -40,7 +52,8 @@ class SkillCritic:
         for state in states:
             summaries.append({
                 "task_id": state.task_id,
-                "task_prompt": state.task_prompt[:300],
+                "task_prompt": state.task_prompt,
+                "choices": state.task_context.get("choices", []),
                 "active_skill_name": state.active_skill_name,
                 "final_answer": state.env_result.final_answer,
                 "final_choice_label": state.env_result.final_choice_label,
@@ -91,12 +104,10 @@ class SkillCritic:
             ),
             skill_json=json.dumps(
                 {
-                    "name": skill.header.name,
-                    "description": skill.header.description,
-                    "phases": sorted(skill.phases.keys(), key=lambda n: skill.phases[n].order),
-                    "body_preview": skill.body[:2000],
+                    "header": skill.header.__dict__,
+                    "body": skill.body,
+                    "phase_order": sorted(skill.phases.keys(), key=lambda n: skill.phases[n].order),
                     "resources": skill.resources,
-                    "allowed_tools": skill.header.allowed_tools,
                 },
                 ensure_ascii=False,
                 indent=2,
